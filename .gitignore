@@ -1,0 +1,58 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+
+# Testing / type-checking / coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+
+# Project runtime cache
+.cache/
+
+# Jupyter (local editor artifacts)
+.ipynb_checkpoints/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / local env
+.env
+.env.*
+
+# Match data (obtain locally — not versioned; ~2 GB)
+sample_Data/
+
+# Local-only docs / scratch (not part of the published repo)
+topic.pdf
+agent_kickoff.md
+Untitled.ipynb
+
+# Removed reference / bootstrap artifacts
+FootballPlayerPositions-main/
+
+# Logs
+*.log
