@@ -1,0 +1,44 @@
+# Broadcast preset — green grass, team shirt colors, minimal overlays.
+name: broadcast
+
+styles:
+  pitch:
+    theme: broadcast
+
+layers:
+  - name: pitch_markings
+    type: PitchMarkings
+    z_order: 10
+    category: pitch
+    style: { grass_color: "#2e7d46", line_color: "#ffffff" }
+
+  - name: shape_graph
+    type: ShapeGraphOverlay
+    z_order: 30
+    category: overlay
+    enabled: false
+    style: { team: both, color: "#dddddd", line_width: 1.2, opacity: 0.5 }
+
+  - name: team_glyphs
+    type: TeamColorGlyph
+    z_order: 40
+    category: player
+    style: { team: both, size: 9, color_mode: team }
+
+  - name: velocity_arrows
+    type: VelocityArrow
+    z_order: 45
+    category: player
+    enabled: false
+    style: { team: both, scale: 0.6, color: "#ffee66" }
+
+  - name: shirt_numbers
+    type: ShirtNumberLabel
+    z_order: 60
+    category: player
+
+  - name: ball
+    type: BallGlyph
+    z_order: 70
+    category: overlay
+    style: { size: 5.5, color: "#ffffff", edge_color: "#000000" }

@@ -1,0 +1,51 @@
+# Tactical preset — dark pitch, role-colored players, analysis overlays.
+name: tactical
+
+styles:
+  pitch:
+    theme: tactical
+
+layers:
+  - name: pitch_markings
+    type: PitchMarkings
+    z_order: 10
+    category: pitch
+    style: { grass_color: "#1a1a2e", line_color: "#e8e8e8" }
+
+  - name: half_space_lines
+    type: HalfSpaceLines
+    z_order: 20
+    category: overlay
+    style: { color: "#ffffff", opacity: 0.18 }
+
+  - name: shape_graph
+    type: ShapeGraphOverlay
+    z_order: 30
+    category: overlay
+    enabled: true
+    style: { team: both, color: "#A9A9A9", line_width: 1.5, opacity: 0.6 }
+
+  - name: team_glyphs
+    type: TeamColorGlyph
+    z_order: 40
+    category: player
+    style: { team: both, size: 9, color_mode: dominant }
+
+  - name: defensive_line
+    type: DefensiveLineOverlay
+    z_order: 50
+    category: overlay
+    enabled: false
+    style: { team: both, opacity: 0.55 }
+
+  - name: shirt_numbers
+    type: ShirtNumberLabel
+    z_order: 60
+    category: player
+    style: { font_size: 6.5, color: "#111111" }
+
+  - name: ball
+    type: BallGlyph
+    z_order: 70
+    category: overlay
+    style: { size: 5.5, color: "#ffffff", edge_color: "#000000" }
