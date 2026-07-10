@@ -14,15 +14,22 @@ class LayerSpec(BaseModel):
     name: str
     type: str  # registered element class name
     z_order: int
+    display_name: str | None = None  # UI label; defaults to title-cased name
     category: str | None = None
     enabled: bool = True
     style: dict = Field(default_factory=dict)  # passed to element constructor
+
+    def ui_label(self) -> str:
+        if self.display_name:
+            return self.display_name
+        return self.name.replace("_", " ").title()
 
 
 class Preset(BaseModel):
     name: str = "unnamed"
     styles: dict = Field(default_factory=dict)  # global style defaults per group
     layers: list[LayerSpec]
+    timeline: list[LayerSpec] = Field(default_factory=list)  # empty → default stack
 
 
 def load_preset(path: str | Path) -> Preset:

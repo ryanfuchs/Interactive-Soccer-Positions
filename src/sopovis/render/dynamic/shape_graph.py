@@ -8,6 +8,7 @@ from sopovis.bundle.bundle import PrecomputedBundle
 from sopovis.config.presets import LayerSpec
 from sopovis.render.common import meta_from_spec, team_ids
 from sopovis.render.elements import DynamicElement, ElementMeta
+from sopovis.render.orientation import to_display_points
 
 
 class ShapeGraphOverlay(DynamicElement):
@@ -35,7 +36,7 @@ class ShapeGraphOverlay(DynamicElement):
                 self._register(lc)
                 self._collections[tid] = lc
             edges = bundle.shape_edges_at(t, tid)
-            xy = bundle.frames[t, :, :2]
+            xy = to_display_points(bundle.frames[t, :, :2], bundle, home_at_bottom=True)
             segments = [
                 (xy[a], xy[b])
                 for a, b in edges

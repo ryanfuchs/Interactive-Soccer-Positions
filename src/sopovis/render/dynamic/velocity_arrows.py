@@ -7,6 +7,7 @@ from sopovis.bundle.bundle import PrecomputedBundle
 from sopovis.config.presets import LayerSpec
 from sopovis.render.common import meta_from_spec, team_ids
 from sopovis.render.elements import DynamicElement, ElementMeta
+from sopovis.render.orientation import to_display_delta, to_display_points
 
 
 class VelocityArrow(DynamicElement):
@@ -32,9 +33,12 @@ class VelocityArrow(DynamicElement):
                 cols.extend(bundle.team_columns(tid))
             self._cols = np.asarray(cols, dtype=np.int32)
         t_prev = max(t - 1, 0)
-        xy = bundle.frames[t, self._cols, :2]
-        d = (xy - bundle.frames[t_prev, self._cols, :2]) * bundle.frame_rate * self.scale
-        ok = np.isfinite(xy).all(axis=1) & np.isfinite(d).all(axis=1)
+        xy_track = bundle.frames[t, self._cols, :2]
+        d_track = (xy_track - bundle.frames[t_prev, self._cols, :2]) * bundle.frame_rate * self.scale
+        ok = np.isfinite(xy_track).all(axis=1) & np.isfinite(d_track).all(axis=1)
+        xy = to_display_points(xy_track, bundle, home_at_bottom=True)
+        ddx, ddy = to_display_delta(d_track[:, 0], d_track[:, 1], home_at_bottom=True)
+        d = np.column_stack([ddx, ddy])
         xy = np.where(ok[:, None], xy, -100.0)
         d = np.where(ok[:, None], d, 0.0)
         if self._quiver is not None:

@@ -18,8 +18,14 @@ from sopovis.bundle.bundle import PrecomputedBundle
 class ElementMeta:
     name: str  # unique id, e.g. "shape_graph"
     z_order: int  # lower = drawn first (background)
+    display_name: str | None = None  # UI label; falls back to title-cased name
     category: str | None = None  # optional UI grouping
     enabled: bool = True
+
+    def ui_label(self) -> str:
+        if self.display_name:
+            return self.display_name
+        return self.name.replace("_", " ").title()
 
 
 class Element(ABC):

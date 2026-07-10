@@ -8,6 +8,8 @@ from sopovis.bundle.bundle import PrecomputedBundle
 from sopovis.config.presets import LayerSpec
 from sopovis.render.common import meta_from_spec, team_ids
 from sopovis.render.elements import DynamicElement, ElementMeta
+from sopovis.render.orientation import to_display_points
+from sopovis.render.sizes import PLAYER_MARKER_PT
 
 
 class TeamColorGlyph(DynamicElement):
@@ -17,7 +19,7 @@ class TeamColorGlyph(DynamicElement):
         self,
         meta: ElementMeta,
         team="both",
-        size=10.0,
+        size=PLAYER_MARKER_PT,
         color_mode="team",
         show_goalkeepers=True,
         edge_color="#222222",
@@ -78,7 +80,7 @@ class TeamColorGlyph(DynamicElement):
     def _draw(self, ax, bundle: PrecomputedBundle, t: int) -> None:
         if self._scatter is None:
             self._prepare(ax, bundle)
-        xy = bundle.frames[t, self._cols, :2]
+        xy = to_display_points(bundle.frames[t, self._cols, :2], bundle, home_at_bottom=True)
         visible = np.isfinite(xy).all(axis=1)
         offsets = np.where(visible[:, None], xy, -100.0)
         self._scatter.set_offsets(offsets)

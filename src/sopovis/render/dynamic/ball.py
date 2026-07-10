@@ -7,10 +7,18 @@ from sopovis.bundle.bundle import PrecomputedBundle
 from sopovis.config.presets import LayerSpec
 from sopovis.render.common import meta_from_spec
 from sopovis.render.elements import DynamicElement, ElementMeta
+from sopovis.render.orientation import to_display_xy
+from sopovis.render.sizes import BALL_MARKER_PT
 
 
 class BallGlyph(DynamicElement):
-    def __init__(self, meta: ElementMeta, size=6.0, color="#ffffff", edge_color="#000000"):
+    def __init__(
+        self,
+        meta: ElementMeta,
+        size=BALL_MARKER_PT,
+        color="#ffffff",
+        edge_color="#000000",
+    ):
         super().__init__(meta)
         self.size = size
         self.color = color
@@ -30,6 +38,7 @@ class BallGlyph(DynamicElement):
             self._register(self._scatter)
         bx, by = bundle.ball[t, 0], bundle.ball[t, 1]
         if np.isfinite(bx) and np.isfinite(by):
-            self._scatter.set_offsets([[bx, by]])
+            dx, dy = to_display_xy(bx, by, bundle, home_at_bottom=True)
+            self._scatter.set_offsets([[dx, dy]])
         else:
             self._scatter.set_offsets([[-100, -100]])

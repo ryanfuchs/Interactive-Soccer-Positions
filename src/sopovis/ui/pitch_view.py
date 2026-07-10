@@ -2,9 +2,7 @@
 
 Read-only subscriber of FrameCursor. All drawing is delegated to the
 config-driven SceneRenderer; this view only manages the Axes, the
-clock title, and scene swaps on preset change.
-
-Hovering a player highlights their tactical row in the position plot.
+clock title, scene swaps, vertical-pitch orientation, and player tooltips.
 """
 from __future__ import annotations
 
@@ -12,10 +10,13 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from sopovis.bundle.bundle import PrecomputedBundle
+from sopovis.render.orientation import to_display_xy, to_tracking_xy
 from sopovis.render.scene import SceneRenderer
+from sopovis.render.sizes import PLAYER_HIGHLIGHT_S
 from sopovis.ui.canvas import refresh_figure
 from sopovis.ui.cursor import FrameCursor
 from sopovis.ui.hover import HoverLink
+from sopovis.ui.tooltips import PlayerTooltip, PlayerTooltipConfig
 
 _PICK_RADIUS_M = 4.0
 
@@ -27,14 +28,20 @@ class PitchAnimationView:
         bundle: PrecomputedBundle,
         scene: SceneRenderer,
         figure: Figure,
+        home_at_bottom: bool = True,
+        tooltip_config: PlayerTooltipConfig | None = None,
     ):
         self.cursor = cursor
         self.bundle = bundle
         self.scene = scene
         self.fig = figure
         self.ax = figure.add_subplot(111)
+        self.home_at_bottom = home_at_bottom
+        self._tooltip_config = tooltip_config or PlayerTooltipConfig()
         self._hover: HoverLink | None = None
         self._highlight = None
+        self._tooltip: PlayerTooltip | None = None
+        self._local_hover = False
         self.draw(cursor.t)
         self.fig.canvas.mpl_connect("motion_notify_event", self._on_motion)
         self.fig.canvas.mpl_connect("axes_leave_event", self._on_axes_leave)
@@ -46,14 +53,25 @@ class PitchAnimationView:
     def on_cursor_change(self, t: int) -> None:
         self.draw(t)
 
+    def set_home_at_bottom(self, home_at_bottom: bool) -> None:
+        if self.home_at_bottom == home_at_bottom:
+            return
+        self.home_at_bottom = home_at_bottom
+        self.draw(self.cursor.t)
+
     def draw(self, t: int) -> None:
         self.scene.draw(self.ax, self.bundle, t)
+        self._apply_orientation()
         self.ax.set_title(
             f"{self.bundle.meta.home_team_name} {self.bundle.meta.result} "
             f"{self.bundle.meta.guest_team_name}   {self.bundle.clock_label(t)}",
             fontsize=9,
         )
         self._update_highlight(t)
+        if self._local_hover and self._hover is not None and self._hover.person_id:
+            self._update_tooltip(self._hover.person_id, t)
+        elif self._tooltip is not None and not self._local_hover:
+            self._tooltip.hide()
         refresh_figure(self.fig, force=True)
 
     def set_scene(self, scene: SceneRenderer) -> None:
@@ -62,26 +80,50 @@ class PitchAnimationView:
         self.scene = scene
         self.scene.invalidate_static()
         self._highlight = None
+        self._tooltip = None
         self.draw(self.cursor.t)
 
     def toggle_layer(self, name: str, enabled: bool) -> None:
         self.scene.set_enabled(name, enabled)
         self.draw(self.cursor.t)
 
+    def _apply_orientation(self) -> None:
+        """Keep VerticalPitch data coords; flip ends via axis limits when needed."""
+        px, py = self.bundle.meta.pitch_x, self.bundle.meta.pitch_y
+        if self.home_at_bottom:
+            self.ax.set_xlim(0, py)
+            self.ax.set_ylim(0, px)
+        else:
+            self.ax.set_xlim(py, 0)
+            self.ax.set_ylim(px, 0)
+
     def _on_motion(self, event) -> None:
         if self._hover is None:
             return
         if event.inaxes is not self.ax or event.xdata is None or event.ydata is None:
-            self._hover.set(None)
+            if self._local_hover:
+                self._local_hover = False
+                self._hover.set(None)
             return
-        self._hover.set(self._pick_player(float(event.xdata), float(event.ydata), self.cursor.t))
+        self._local_hover = True
+        # Artists stay in unflipped display coords; only axis limits invert.
+        tx, ty = to_tracking_xy(
+            float(event.xdata), float(event.ydata), self.bundle, home_at_bottom=True
+        )
+        self._hover.set(self._pick_player(tx, ty, self.cursor.t))
 
     def _on_axes_leave(self, event) -> None:
         if self._hover is not None and event.inaxes is self.ax:
+            self._local_hover = False
             self._hover.set(None)
 
-    def _on_hover_change(self, _person_id: str | None) -> None:
+    def _on_hover_change(self, person_id: str | None) -> None:
         self._update_highlight(self.cursor.t)
+        if person_id is None or not self._local_hover:
+            if self._tooltip is not None:
+                self._tooltip.hide()
+        else:
+            self._update_tooltip(person_id, self.cursor.t)
         refresh_figure(self.fig, force=True)
 
     def _pick_player(self, x: float, y: float, t: int) -> str | None:
@@ -99,6 +141,29 @@ class PitchAnimationView:
             return None
         return self.bundle.player_ids[best_col]
 
+    def _update_tooltip(self, person_id: str, t: int) -> None:
+        from sopovis.ui.tooltips import row_mates
+
+        if self._tooltip is None:
+            self._tooltip = PlayerTooltip(self.ax, self._tooltip_config)
+        col = self.bundle.player_index.get(person_id)
+        if col is None:
+            self._tooltip.hide()
+            return
+        x, y = self.bundle.frames[t, col, :2]
+        if not np.isfinite(x):
+            self._tooltip.hide()
+            return
+        dx, dy = to_display_xy(x, y, self.bundle, home_at_bottom=True)
+        self._tooltip.show_at(
+            self.bundle,
+            person_id,
+            t,
+            dx,
+            dy,
+            related_ids=row_mates(self.bundle, person_id),
+        )
+
     def _update_highlight(self, t: int) -> None:
         person_id = self._hover.person_id if self._hover is not None else None
         if person_id is None:
@@ -110,7 +175,7 @@ class PitchAnimationView:
             self._highlight = self.ax.scatter(
                 [],
                 [],
-                s=260,
+                s=PLAYER_HIGHLIGHT_S,
                 facecolors="none",
                 edgecolors="#FF8F00",
                 linewidths=2.4,
@@ -125,5 +190,6 @@ class PitchAnimationView:
         if not np.isfinite(x):
             self._highlight.set_visible(False)
             return
-        self._highlight.set_offsets([[x, y]])
+        dx, dy = to_display_xy(x, y, self.bundle, home_at_bottom=True)
+        self._highlight.set_offsets([[dx, dy]])
         self._highlight.set_visible(True)

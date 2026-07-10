@@ -16,9 +16,8 @@ from pathlib import Path
 import numpy as np
 
 from sopovis.model.meta import MatchInformation
+from sopovis.model.sections import SECTION_ORDER
 from sopovis.model.state import TrackingData
-
-_SECTION_ORDER = ["firstHalf", "secondHalf"]
 
 
 def _derive_kinematics(xy: np.ndarray, frame_rate: float) -> np.ndarray:
@@ -56,7 +55,7 @@ class TrackingDataLoader:
         frame_rate = 25.0
         offset = 0
 
-        for section in _SECTION_ORDER:
+        for section in SECTION_ORDER:
             if section not in xy_objects:
                 continue
             teams = xy_objects[section]
@@ -91,7 +90,7 @@ class TrackingDataLoader:
 
         kin_parts = [
             _derive_kinematics(xy[lo:hi], frame_rate)
-            for lo, hi in (section_ranges[s] for s in _SECTION_ORDER if s in section_ranges)
+            for lo, hi in (section_ranges[s] for s in SECTION_ORDER if s in section_ranges)
         ]
         kin = np.concatenate(kin_parts, axis=0)  # (T, N, 3)
 

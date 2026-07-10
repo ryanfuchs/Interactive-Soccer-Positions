@@ -8,7 +8,11 @@ from sopovis.render.elements import ElementMeta
 
 def meta_from_spec(spec: LayerSpec) -> ElementMeta:
     return ElementMeta(
-        name=spec.name, z_order=spec.z_order, category=spec.category, enabled=spec.enabled
+        name=spec.name,
+        z_order=spec.z_order,
+        display_name=spec.display_name,
+        category=spec.category,
+        enabled=spec.enabled,
     )
 
 

@@ -43,6 +43,7 @@ MatchDesktopApp(bundle, preset="tactical").run()
 | `src/sopovis/render` | Element system, `SceneRenderer`, built-in layers |
 | `src/sopovis/ui` | `FrameCursor`, three views, `MatchDesktopApp` |
 | `presets/` | YAML layer stacks (`tactical`, `broadcast`) |
+| `docs/` | [Pipeline documentation](docs/pipeline.md) — ingestion → analytics → rendering |
 | `tests/` | Smoke tests for CLI, desktop UI, and canvas helpers |
 
 ## Tests

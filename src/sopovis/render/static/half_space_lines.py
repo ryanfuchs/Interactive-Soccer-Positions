@@ -8,7 +8,7 @@ from sopovis.render.elements import ElementMeta, StaticElement
 
 
 class HalfSpaceLines(StaticElement):
-    """Dashed lateral zone boundaries (half-spaces) along the pitch length."""
+    """Dashed lateral zone boundaries on a vertical pitch (lines along length)."""
 
     def __init__(self, meta: ElementMeta, color="#ffffff", opacity=0.25):
         super().__init__(meta)
@@ -22,7 +22,8 @@ class HalfSpaceLines(StaticElement):
     def _build(self, ax, bundle: PrecomputedBundle) -> None:
         width = bundle.meta.pitch_y
         for frac in (0.211, 0.368, 0.632, 0.789):
-            line = ax.axhline(
+            # VerticalPitch plots (y, x); lateral position is the horizontal axis.
+            line = ax.axvline(
                 width * frac,
                 color=self.color,
                 alpha=self.opacity,

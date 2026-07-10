@@ -7,10 +7,12 @@ from sopovis.bundle.bundle import PrecomputedBundle
 from sopovis.config.presets import LayerSpec
 from sopovis.render.common import meta_from_spec, team_ids
 from sopovis.render.elements import DynamicElement, ElementMeta
+from sopovis.render.orientation import to_display_xy
+from sopovis.render.sizes import SHIRT_FONT_SIZE
 
 
 class ShirtNumberLabel(DynamicElement):
-    def __init__(self, meta: ElementMeta, team="both", font_size=7.0, color=None):
+    def __init__(self, meta: ElementMeta, team="both", font_size=SHIRT_FONT_SIZE, color=None):
         super().__init__(meta)
         self.team = team
         self.font_size = font_size
@@ -42,6 +44,7 @@ class ShirtNumberLabel(DynamicElement):
         for c, txt in self._texts.items():
             x, y = xy[c]
             if np.isfinite(x) and np.isfinite(y):
-                txt.set_position((x, y))
+                dx, dy = to_display_xy(x, y, bundle, home_at_bottom=True)
+                txt.set_position((dx, dy))
             else:
                 txt.set_position((-100, -100))

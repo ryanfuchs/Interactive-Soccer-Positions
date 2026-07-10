@@ -7,18 +7,21 @@ styles:
 
 layers:
   - name: pitch_markings
+    display_name: Pitch
     type: PitchMarkings
     z_order: 10
     category: pitch
     style: { grass_color: "#1a1a2e", line_color: "#e8e8e8" }
 
   - name: half_space_lines
+    display_name: Half-spaces
     type: HalfSpaceLines
     z_order: 20
     category: overlay
     style: { color: "#ffffff", opacity: 0.18 }
 
   - name: shape_graph
+    display_name: Shape graph
     type: ShapeGraphOverlay
     z_order: 30
     category: overlay
@@ -26,12 +29,14 @@ layers:
     style: { team: both, color: "#A9A9A9", line_width: 1.5, opacity: 0.6 }
 
   - name: team_glyphs
+    display_name: Players
     type: TeamColorGlyph
     z_order: 40
     category: player
-    style: { team: both, size: 9, color_mode: dominant }
+    style: { team: both, color_mode: dominant }
 
   - name: defensive_line
+    display_name: Defensive line
     type: DefensiveLineOverlay
     z_order: 50
     category: overlay
@@ -39,13 +44,58 @@ layers:
     style: { team: both, opacity: 0.55 }
 
   - name: shirt_numbers
+    display_name: Shirt numbers
     type: ShirtNumberLabel
     z_order: 60
     category: player
-    style: { font_size: 6.5, color: "#111111" }
+    style: { color: "#111111" }
 
   - name: ball
+    display_name: Ball
     type: BallGlyph
     z_order: 70
     category: overlay
-    style: { size: 5.5, color: "#ffffff", edge_color: "#000000" }
+    style: { color: "#ffffff", edge_color: "#000000" }
+
+# Timeline overlays — band: full | home | away for area layers,
+# team: both | home | away to filter marker layers.
+timeline:
+  - name: possession
+    display_name: Possession
+    type: PossessionChart
+    z_order: 2
+    enabled: true
+    style: { window_seconds: 90, linewidth: 1.5, home_color: "#d00000", away_color: "#215CAF" }
+
+  - name: lanes
+    display_name: Lanes
+    type: LaneFurniture
+    z_order: 4
+
+  - name: sections
+    display_name: Periods
+    type: SectionBoundaries
+    z_order: 6
+
+  - name: whistles
+    display_name: Whistles
+    type: EventMarkers
+    z_order: 10
+    style: { kinds: [whistle] }
+
+  - name: cards
+    display_name: Cards
+    type: EventMarkers
+    z_order: 12
+    style: { kinds: [card] }
+
+  - name: subs
+    display_name: Substitutions
+    type: EventMarkers
+    z_order: 14
+    style: { kinds: [sub] }
+
+  - name: shots
+    display_name: Shots & goals
+    type: ShotMarkers
+    z_order: 16

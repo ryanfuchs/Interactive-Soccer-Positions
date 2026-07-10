@@ -33,7 +33,7 @@ class EventMoment:
     team_id: str | None
     x: float | None
     y: float | None
-    section: str  # "firstHalf" | "secondHalf"
+    section: str  # see model.sections.SECTION_ORDER
     raw: dict = field(default_factory=dict, compare=False)
 
     @property

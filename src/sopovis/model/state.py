@@ -23,13 +23,13 @@ BX, BY, BZ, BSTATUS = 0, 1, 2, 3
 class MatchState:
     frames: np.ndarray  # (T, N, 5) — x, y, speed, accel, dist; NaN when absent
     ball: np.ndarray  # (T, 4) — x, y, z, status (1 = in play)
-    ball_possession: np.ndarray  # (T,) — 1 home, 2 away, 0 unknown
+    ball_possession: np.ndarray  # (T,) — 1 home, 2 away, 0 contested/unknown
     player_ids: list[str]  # length N, column index → person_id
     player_registry: dict[str, PlayerMeta]
     team_map: dict[str, str]  # person_id → team_id
     events: list[EventMoment]
     event_index: dict[int, list[EventMoment]]  # frame_idx → events
-    section_ranges: dict[str, tuple[int, int]]  # "firstHalf"/"secondHalf" → (start, end) exclusive
+    section_ranges: dict[str, tuple[int, int]]  # section id → (start, end) exclusive; see model.sections
     frame_rate: float
     total_frames: int
     meta: MatchMeta

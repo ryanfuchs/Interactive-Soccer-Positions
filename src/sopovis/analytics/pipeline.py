@@ -245,9 +245,12 @@ def _compute_player_ordering(
 ) -> dict[str, int]:
     """Assign stable heatmap rows across substitutions.
 
-    Initial rows sort the starting outfield players by their dominant role in
-    the first segment; at each substitution the incoming player inherits the
-    row of the most role-similar outgoing player (greedy min assignment).
+    Starters are ordered **zeilenweise** (row-major) on the 5×5 role matrix:
+    depth row F→B outer, lateral L→R within each depth — i.e. flat index
+    ``(x_role+2)*5 + (y_role+2)``. Ties break by shirt number.
+
+    At each substitution the incoming player inherits the row of the most
+    role-similar outgoing player (greedy min assignment).
     """
     from sopovis.analytics.roles import most_frequent_role_index, role_similarity
 
@@ -270,9 +273,11 @@ def _compute_player_ordering(
         pairs = []
         for c in starters:
             idx = most_frequent_role_index(counts[0, c], counts[first_sub, c])
-            pairs.append((c, idx if idx is not None else 12))
-        pairs.sort(key=lambda p: p[1])
-        for row, (c, _idx) in enumerate(pairs):
+            shirt = state.player_registry[state.player_ids[c]].shirt_number
+            # (matrix flat index, shirt) — zeilenweise then jersey
+            pairs.append((c, idx if idx is not None else 12, shirt))
+        pairs.sort(key=lambda p: (p[1], p[2]))
+        for row, (c, _idx, _shirt) in enumerate(pairs):
             row_order[state.player_ids[c]] = row
 
         for si in range(1, len(sub_frames) - 1):

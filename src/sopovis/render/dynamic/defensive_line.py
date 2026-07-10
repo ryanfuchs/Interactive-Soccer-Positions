@@ -10,7 +10,7 @@ from sopovis.render.elements import DynamicElement, ElementMeta
 
 
 class DefensiveLineOverlay(DynamicElement):
-    """Vertical line at each team's deepest outfield player (defensive height)."""
+    """Horizontal line at each team's deepest outfield player (vertical pitch)."""
 
     def __init__(self, meta: ElementMeta, team="both", line_width=1.5, opacity=0.7):
         super().__init__(meta)
@@ -27,7 +27,7 @@ class DefensiveLineOverlay(DynamicElement):
         section = bundle.section_of(t)
         for tid in team_ids(bundle, self.team):
             if tid not in self._lines:
-                line = ax.axvline(
+                line = ax.axhline(
                     0, color=bundle.teams[tid].shirt_main_color,
                     linewidth=self.line_width, alpha=self.opacity, linestyle="-.",
                 )
@@ -43,4 +43,5 @@ class DefensiveLineOverlay(DynamicElement):
                 continue
             attacking_pos_x = bundle.attack_directions.get((tid, section), True)
             height = xs.min() if attacking_pos_x else xs.max()
-            self._lines[tid].set_xdata([height, height])
+            # VerticalPitch display y = tracking x (depth).
+            self._lines[tid].set_ydata([height, height])

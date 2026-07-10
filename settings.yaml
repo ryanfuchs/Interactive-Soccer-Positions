@@ -1,0 +1,14 @@
+# SoPoVis user preferences (loaded at startup).
+# Delete a key to fall back to its built-in default.
+
+# Position-analysis binning: analytics frames per bin at startup.
+default_resolution: 150
+
+# Adapt resolution to the visible time window: finer bins when zooming in,
+# coarser when zooming out (targets ~zoom_target_bins bins across the window).
+auto_resolution_on_zoom: true
+zoom_target_bins: 180
+
+# Smallest selectable zoom window in seconds (drag on the timeline or the
+# position analysis; double-click resets the zoom).
+min_zoom_seconds: 5

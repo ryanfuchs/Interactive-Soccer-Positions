@@ -15,7 +15,7 @@ from pathlib import Path
 from sopovis.bundle.bundle import PrecomputedBundle
 from sopovis.model.state import MatchState
 
-_CACHE_VERSION = 2  # shape-graph + position-plot roles
+_CACHE_VERSION = 3  # zeilenweise row order with shirt-number tiebreak
 
 
 @dataclass

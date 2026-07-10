@@ -104,5 +104,9 @@ class PrecomputedBundle:
         seconds = (t - lo) / self.frame_rate
         if section == "secondHalf":
             seconds += 45 * 60
+        elif section == "firstHalfExtra":
+            seconds += 90 * 60
+        elif section == "secondHalfExtra":
+            seconds += 105 * 60
         m, s = divmod(int(seconds), 60)
         return f"{m:02d}:{s:02d}"
