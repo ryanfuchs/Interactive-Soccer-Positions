@@ -63,4 +63,4 @@ def auto_resolution(settings: UserSettings, bundle: PrecomputedBundle, t0: int, 
     visible_ta = max(1, visible // bundle.analytics_stride)
     target = max(1, settings.zoom_target_bins)
     res = visible_ta // target
-    return max(5, min(600, max(1, res)))
+    return max(settings.min_resolution, min(settings.max_resolution, max(1, res)))

@@ -20,6 +20,13 @@ from matplotlib.figure import Figure
 from sopovis.bundle.bundle import PrecomputedBundle
 from sopovis.config.presets import Preset
 from sopovis.config.settings import UserSettings, load_settings
+from sopovis.render.position import (
+    DEFAULT_POSITION_LAYERS,
+    PositionElementRegistry,
+    PositionStack,
+    PositionStackBuilder,
+    default_position_registry,
+)
 from sopovis.render.registry import ElementRegistry, default_registry
 from sopovis.render.scene import SceneBuilder
 from sopovis.render.timeline import (
@@ -30,7 +37,7 @@ from sopovis.render.timeline import (
     default_timeline_registry,
 )
 from sopovis.ui.cursor import FrameCursor
-from sopovis.ui.hover import HoverLink
+from sopovis.ui.hover import HoverLink, TimeHoverLink
 from sopovis.ui.pitch_view import PitchAnimationView
 from sopovis.ui.position_plot import PositionPlotView
 from sopovis.ui.time_window import ViewTimeRange, auto_resolution
@@ -47,14 +54,17 @@ class AppController:
         fig_pitch: Figure,
         registry: ElementRegistry | None = None,
         timeline_registry: TimelineElementRegistry | None = None,
+        position_registry: PositionElementRegistry | None = None,
         settings: UserSettings | None = None,
     ):
         self.bundle = bundle
         self.settings = settings or load_settings()
         self.registry = registry or default_registry()
         self.timeline_registry = timeline_registry or default_timeline_registry()
+        self.position_registry = position_registry or default_position_registry()
         self.cursor = FrameCursor(t=0)
         self.hover = HoverLink()
+        self.time_hover = TimeHoverLink()
         self.view_range = ViewTimeRange(bundle)
         self.on_view_changed: list[Callable[[], None]] = []
 
@@ -71,18 +81,32 @@ class AppController:
         self.position_plot = PositionPlotView(
             self.cursor,
             bundle,
+            self._build_position_stack(preset),
             fig_plot,
             view_range=self.view_range,
             resolution=self.settings.default_resolution,
+            team_focus=self.settings.default_team_focus,
+            home_at_bottom=self.settings.default_home_at_bottom,
+            ball_in_play=self.settings.default_ball_in_play,
+            possession_filter=self.settings.default_possession_filter,
             min_zoom_seconds=self.settings.min_zoom_seconds,
             on_span_zoom=self.set_zoom,
             on_span_reset=self.reset_zoom,
         )
         scene = SceneBuilder(self.registry).build(preset.layers, bundle)
-        self.pitch = PitchAnimationView(self.cursor, bundle, scene, fig_pitch)
+        self.pitch = PitchAnimationView(
+            self.cursor,
+            bundle,
+            scene,
+            fig_pitch,
+            home_at_bottom=self.settings.default_home_at_bottom,
+        )
 
         self.position_plot.bind_hover(self.hover)
         self.pitch.bind_hover(self.hover)
+
+        self.position_plot.bind_time_hover(self.time_hover)
+        self.timeline.bind_time_hover(self.time_hover)
 
         self.cursor.subscribe(self.position_plot.on_cursor_change)
         self.cursor.subscribe(self.pitch.on_cursor_change)
@@ -92,16 +116,24 @@ class AppController:
         specs = preset.timeline or DEFAULT_TIMELINE_LAYERS
         return TimelineStackBuilder(self.timeline_registry).build(specs, self.bundle)
 
+    def _build_position_stack(self, preset: Preset) -> PositionStack:
+        specs = preset.position or DEFAULT_POSITION_LAYERS
+        return PositionStackBuilder(self.position_registry).build(specs, self.bundle)
+
     def on_preset_change(self, preset: Preset) -> None:
         scene = SceneBuilder(self.registry).build(preset.layers, self.bundle)
         self.pitch.set_scene(scene)
         self.timeline.set_stack(self._build_timeline_stack(preset))
+        self.position_plot.set_stack(self._build_position_stack(preset))
 
     def toggle_layer(self, name: str, enabled: bool) -> None:
         self.pitch.toggle_layer(name, enabled)
 
     def toggle_timeline_layer(self, name: str, enabled: bool) -> None:
         self.timeline.set_layer_enabled(name, enabled)
+
+    def toggle_position_layer(self, name: str, enabled: bool) -> None:
+        self.position_plot.set_layer_enabled(name, enabled)
 
     def set_home_at_bottom(self, home_at_bottom: bool) -> None:
         self.pitch.set_home_at_bottom(home_at_bottom)

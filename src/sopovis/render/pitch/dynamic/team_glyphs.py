@@ -23,6 +23,7 @@ class TeamColorGlyph(DynamicElement):
         color_mode="team",
         show_goalkeepers=True,
         edge_color="#222222",
+        goalkeeper_color=None,  # None → team shirt color
     ):
         super().__init__(meta)
         self.team = team
@@ -30,8 +31,10 @@ class TeamColorGlyph(DynamicElement):
         self.color_mode = color_mode
         self.show_goalkeepers = show_goalkeepers
         self.edge_color = edge_color
+        self.goalkeeper_color = goalkeeper_color
         self._scatter = None
         self._cols: np.ndarray | None = None
+        self._gk_mask: np.ndarray | None = None
         self._team_colors: np.ndarray | None = None
 
     @classmethod
@@ -41,6 +44,7 @@ class TeamColorGlyph(DynamicElement):
     def _prepare(self, ax, bundle: PrecomputedBundle) -> None:
         cols = []
         colors = []
+        gk_mask = []
         for tid in team_ids(bundle, self.team):
             shirt = bundle.teams[tid].shirt_main_color
             for c in bundle.team_columns(tid):
@@ -48,8 +52,14 @@ class TeamColorGlyph(DynamicElement):
                 if not self.show_goalkeepers and player.is_goalkeeper:
                     continue
                 cols.append(c)
-                colors.append(shirt)
+                gk_mask.append(player.is_goalkeeper)
+                colors.append(
+                    self.goalkeeper_color
+                    if player.is_goalkeeper and self.goalkeeper_color
+                    else shirt
+                )
         self._cols = np.asarray(cols, dtype=np.int32)
+        self._gk_mask = np.asarray(gk_mask, dtype=bool)
         self._team_colors = np.asarray(colors, dtype=object)
         self._scatter = ax.scatter(
             [], [], s=self.size**2, edgecolors=self.edge_color, linewidths=0.7
@@ -62,7 +72,9 @@ class TeamColorGlyph(DynamicElement):
         roles = bundle.roles_at(t)[self._cols]
         out = np.empty(len(self._cols), dtype=object)
         for i, (xr, yr) in enumerate(roles):
-            if xr == UNSET:
+            if self._gk_mask[i] and self.goalkeeper_color:
+                out[i] = self.goalkeeper_color
+            elif xr == UNSET:
                 out[i] = self._team_colors[i]
             elif self.color_mode == "role_depth":
                 out[i] = ROLE_COLORS_X[xr + 2]

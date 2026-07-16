@@ -40,7 +40,9 @@ MatchDesktopApp(bundle, preset="tactical").run()
 | `src/sopovis/io` | DFL XML ingestion (floodlight-based) → `MatchState` |
 | `src/sopovis/analytics` | Shape graph + tactical role inference |
 | `src/sopovis/bundle` | `PrecomputedBundle` + disk cache |
-| `src/sopovis/render` | Element system, `SceneRenderer`, built-in layers |
+| `src/sopovis/render/pitch` | Pitch overlays — static + dynamic elements |
+| `src/sopovis/render/timeline` | Timeline strip overlays |
+| `src/sopovis/render/position` | Position heatmap overlays |
 | `src/sopovis/ui` | `FrameCursor`, three views, `MatchDesktopApp` |
 | `presets/` | YAML layer stacks (`tactical`, `broadcast`) |
 | `docs/` | [Pipeline documentation](docs/pipeline.md) — ingestion → analytics → rendering |

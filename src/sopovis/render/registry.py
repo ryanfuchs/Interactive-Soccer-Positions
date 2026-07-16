@@ -2,7 +2,7 @@
 
 Adding a layer:
     1. implement a StaticElement/DynamicElement subclass with from_spec()
-       under ``render/static/`` or ``render/dynamic/``
+       under ``render/pitch/static/`` or ``render/pitch/dynamic/``
     2. registry.register("MyOverlay", MyOverlay.from_spec)
     3. add a YAML `layers` entry with the desired z_order
 """
@@ -35,18 +35,18 @@ class ElementRegistry:
 
 
 def default_registry() -> ElementRegistry:
-    from sopovis.render import dynamic, static
+    from sopovis.render import pitch
 
     registry = ElementRegistry()
     for cls in (
-        static.PitchMarkings,
-        static.HalfSpaceLines,
-        dynamic.ShapeGraphOverlay,
-        dynamic.TeamColorGlyph,
-        dynamic.ShirtNumberLabel,
-        dynamic.BallGlyph,
-        dynamic.DefensiveLineOverlay,
-        dynamic.VelocityArrow,
+        pitch.PitchMarkings,
+        pitch.HalfSpaceLines,
+        pitch.ShapeGraphOverlay,
+        pitch.TeamColorGlyph,
+        pitch.ShirtNumberLabel,
+        pitch.BallGlyph,
+        pitch.DefensiveLineOverlay,
+        pitch.VelocityArrow,
     ):
         registry.register(cls.__name__, cls.from_spec)
     return registry

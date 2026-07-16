@@ -8,8 +8,6 @@ from pathlib import Path
 
 DEFAULT_MATCH = "DFL-MAT-J03WMX"
 DATA_DIR = Path(__file__).resolve().parents[2] / "sample_Data"
-PRESET = "tactical"
-CACHE_DIR = ".cache"
 
 
 def match_id_from_argv(argv: list[str] | None = None) -> str:
@@ -38,16 +36,20 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     from sopovis import build_bundle, load_match
+    from sopovis.config.settings import load_settings
     from sopovis.ui.desktop import MatchDesktopApp
+
+    settings = load_settings()
+    data_dir = Path(settings.data_dir).expanduser() if settings.data_dir else DATA_DIR
 
     mid = match_id_from_argv(argv)
     verbose = sys.stdout.isatty()
     t_total = time.perf_counter()
 
     _log(f"SoPoVis — {mid}")
-    _log(f"[1/3] Loading DFL XML from {DATA_DIR} …")
+    _log(f"[1/3] Loading DFL XML from {data_dir} …")
     t0 = time.perf_counter()
-    state = load_match(DATA_DIR, mid)
+    state = load_match(data_dir, mid)
     _log(
         f"      {state.meta.home_team_name} {state.meta.result} "
         f"{state.meta.guest_team_name}"
@@ -62,7 +64,8 @@ def main(argv: list[str] | None = None) -> None:
     t1 = time.perf_counter()
     bundle = build_bundle(
         state,
-        cache_dir=CACHE_DIR,
+        analytics_stride=settings.analytics_stride,
+        cache_dir=settings.cache_dir,
         progress=verbose,
         verbose=verbose,
     )
@@ -70,8 +73,8 @@ def main(argv: list[str] | None = None) -> None:
         f"      {bundle.total_analytics_frames:,} analytics frames · {_elapsed(t1)}"
     )
 
-    _log(f"[3/3] Opening desktop UI (preset: {PRESET}) …")
-    app = MatchDesktopApp(bundle, preset=PRESET)
+    _log(f"[3/3] Opening desktop UI (preset: {settings.default_preset}) …")
+    app = MatchDesktopApp(bundle, preset=settings.default_preset, settings=settings)
     _log(f"Ready in {_elapsed(t_total)} — close the window to exit.")
     app.run()
 

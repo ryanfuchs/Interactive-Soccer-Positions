@@ -25,3 +25,31 @@ class HoverLink:
     @property
     def person_id(self) -> str | None:
         return self._person_id
+
+
+class TimeHoverLink:
+    """Observable hovered time (tracking-frame index), shared across time views.
+
+    Written by whichever time view the mouse is over (timeline / position
+    plot); every subscriber draws a vertical guide line at that frame so the
+    hover position is mirrored between the views.
+    """
+
+    def __init__(self) -> None:
+        self._frame: int | None = None
+        self._subscribers: list[Callable[[int | None], None]] = []
+
+    def subscribe(self, callback: Callable[[int | None], None]) -> None:
+        self._subscribers.append(callback)
+
+    def set(self, frame: int | None) -> None:
+        frame = int(frame) if frame is not None else None
+        if frame == self._frame:
+            return
+        self._frame = frame
+        for callback in self._subscribers:
+            callback(frame)
+
+    @property
+    def frame(self) -> int | None:
+        return self._frame

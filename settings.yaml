@@ -11,4 +11,47 @@ zoom_target_bins: 180
 
 # Smallest selectable zoom window in seconds (drag on the timeline or the
 # position analysis; double-click resets the zoom).
-min_zoom_seconds: 5
+min_zoom_seconds: 5.0
+
+# --- Startup / session -------------------------------------------------------
+
+# Layer preset loaded at startup: a file name in presets/ (e.g. tactical, broadcast).
+default_preset: tactical
+
+# Folder holding the DFL match XML. Leave unset (null) to use the bundled sample data.
+# data_dir: /path/to/your/matches
+
+# Analytics cache folder. Set to null to disable the on-disk cache.
+cache_dir: .cache
+
+# --- Playback ----------------------------------------------------------------
+
+# Playback speed selected at startup: one of 0.5, 1, 2, 4, 8.
+default_playback_speed: 1.0
+
+# Milliseconds between playback steps (smaller = smoother animation, more CPU).
+play_interval_ms: 80
+
+# --- Default view state ------------------------------------------------------
+
+# Position-plot team focus at startup: home | both | away.
+default_team_focus: both
+
+# Position-plot possession filter at startup: all | home | away | contested.
+default_possession_filter: all
+
+# Blank position-plot bins where the ball is out of play.
+default_ball_in_play: false
+
+# Pitch orientation at startup: home team along the bottom edge.
+default_home_at_bottom: true
+
+# --- Analytics / resolution bounds -------------------------------------------
+
+# Tracking-frame stride for the analytics pass. Affects build time and the cache
+# key: changing it forces a one-time rebuild.
+analytics_stride: 5
+
+# Lower / upper bounds of the resolution slider (analytics frames per bin).
+min_resolution: 5
+max_resolution: 600

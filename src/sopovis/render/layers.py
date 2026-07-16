@@ -1,13 +1,14 @@
-"""Re-exports for layer classes under ``render.static`` / ``render.dynamic``."""
-from sopovis.render.dynamic import (
+"""Backward-compatible re-exports — prefer ``sopovis.render.pitch``."""
+from sopovis.render.pitch import (
     BallGlyph,
     DefensiveLineOverlay,
+    HalfSpaceLines,
+    PitchMarkings,
     ShapeGraphOverlay,
     ShirtNumberLabel,
     TeamColorGlyph,
     VelocityArrow,
 )
-from sopovis.render.static import HalfSpaceLines, PitchMarkings
 
 __all__ = [
     "BallGlyph",

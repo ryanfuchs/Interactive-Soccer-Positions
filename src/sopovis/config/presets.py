@@ -30,6 +30,7 @@ class Preset(BaseModel):
     styles: dict = Field(default_factory=dict)  # global style defaults per group
     layers: list[LayerSpec]
     timeline: list[LayerSpec] = Field(default_factory=list)  # empty → default stack
+    position: list[LayerSpec] = Field(default_factory=list)  # empty → default stack
 
 
 def load_preset(path: str | Path) -> Preset:

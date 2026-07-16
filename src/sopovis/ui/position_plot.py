@@ -1,15 +1,7 @@
 """PositionPlotView — time × player-row heatmap of tactical roles.
 
-Each player band has two stacked halves: upper = depth role color (F…B),
-lower = lateral role color (L…R), with a thin blank gap between players.
-Aggregation picks the role with the largest role_counts delta over each
-time bin. Bins can be blanked when the ball is out of play or when
-possession does not match the active filter.
-
-When both teams are shown they stack to match the vertical pitch
-(``home_at_bottom``): the top block is the team at the top of the pitch.
-Lateral colours are mirrored on one side and row order is reversed so the
-two blocks face each other (attackers toward the middle).
+Drawing is delegated to a ``PositionStack`` (see ``sopovis.render.position``).
+This view owns the Axes, cursor playhead, row highlight, tooltips, and span-zoom.
 
 Read-only subscriber of FrameCursor; clicks request a seek via the timeline.
 Hovering a row highlights the active player on the pitch (via HoverLink).
@@ -19,29 +11,26 @@ from __future__ import annotations
 from typing import Callable
 
 import numpy as np
-from matplotlib.colors import to_rgb
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
-from sopovis.analytics.roles import ROLE_COLORS_X, ROLE_COLORS_Y
 from sopovis.bundle.bundle import PrecomputedBundle
+from sopovis.render.position import (
+    PositionContext,
+    PositionStack,
+    POSSESSION_ALL,
+    PLAYER_BAND,
+    RowBand,
+)
 from sopovis.ui.canvas import refresh_figure
 from sopovis.ui.cursor import FrameCursor
-from sopovis.ui.hover import HoverLink
+from sopovis.ui.hover import HoverLink, TimeHoverLink
 from sopovis.ui.span_zoom import SpanZoomInteraction
 from sopovis.ui.time_window import ViewTimeRange
 from sopovis.ui.tooltips import PlayerTooltip, PlayerTooltipConfig, row_mates, substitution_frames
 
-_TEAM_GAP_ROWS = 1  # blank image rows between team blocks
-_PLAYER_BAND = 2  # depth + lateral colour strips
-_PLAYER_GAP = 1  # blank image rows between players
-_BIN_VISIBLE_FRAC = 0.5  # min fraction of frames in bin that must pass filters
-
-# possession filter values (match ball_possession codes; None = no filter)
-POSSESSION_ALL = "all"
-POSSESSION_HOME = "home"  # code 1
-POSSESSION_AWAY = "away"  # code 2
-POSSESSION_CONTESTED = "contested"  # code 0 (unknown / contested)
+# Re-export possession constants for callers (desktop, tests).
+__all__ = ["POSSESSION_ALL", "PositionPlotView"]
 
 
 class PositionPlotView:
@@ -49,9 +38,10 @@ class PositionPlotView:
         self,
         cursor: FrameCursor,
         bundle: PrecomputedBundle,
+        stack: PositionStack,
         figure: Figure,
-        resolution: int = 150,  # bin width in analytics frames (≈30 s at stride 5)
-        team_focus: str = "both",  # "home" | "away" | "both"
+        resolution: int = 150,
+        team_focus: str = "both",
         home_at_bottom: bool = True,
         view_range: ViewTimeRange | None = None,
         ball_in_play: bool = False,
@@ -63,6 +53,7 @@ class PositionPlotView:
     ):
         self.cursor = cursor
         self.bundle = bundle
+        self.stack = stack
         self.fig = figure
         self.ax = figure.add_subplot(111)
         self.view_range = view_range or ViewTimeRange(bundle)
@@ -73,13 +64,15 @@ class PositionPlotView:
         self.possession_filter = possession_filter
         self.request_seek: Callable[[int], None] = lambda t: None
         self._hover: HoverLink | None = None
+        self._time_hover: TimeHoverLink | None = None
+        self._hover_line = None
         self._tooltip_config = tooltip_config or PlayerTooltipConfig()
         self._tooltip: PlayerTooltip | None = None
         self._playhead = None
-        self._row_bands: list[dict] = []
+        self._row_bands: list[RowBand] = []
         self._highlight: Rectangle | None = None
-        self._sub_lines: dict[int, object] = {}  # tracking frame → axvline
-        self._local_hover = False  # True while pointer is over this axes
+        self._sub_lines: dict[int, object] = {}
+        self._local_hover = False
         self._redraw_full()
         min_frames = max(1, int(min_zoom_seconds * bundle.frame_rate))
         self._span_zoom = SpanZoomInteraction(
@@ -100,6 +93,10 @@ class PositionPlotView:
         self._hover = hover
         hover.subscribe(self._on_hover_change)
 
+    def bind_time_hover(self, time_hover: TimeHoverLink) -> None:
+        self._time_hover = time_hover
+        time_hover.subscribe(self._on_time_hover_change)
+
     def on_cursor_change(self, t: int) -> None:
         if self._playhead is not None:
             self._playhead.set_xdata([t, t])
@@ -108,9 +105,18 @@ class PositionPlotView:
         refresh_figure(self.fig)
 
     def _on_motion(self, event) -> None:
+        if event.inaxes is not self.ax or event.xdata is None:
+            if self._time_hover is not None:
+                self._time_hover.set(None)
+            if self._hover is not None and self._local_hover:
+                self._local_hover = False
+                self._hover.set(None)
+            return
+        if self._time_hover is not None:
+            self._time_hover.set(int(round(event.xdata)))
         if self._hover is None:
             return
-        if event.inaxes is not self.ax or event.ydata is None:
+        if event.ydata is None:
             if self._local_hover:
                 self._local_hover = False
                 self._hover.set(None)
@@ -120,16 +126,29 @@ class PositionPlotView:
         if band is None:
             self._hover.set(None)
             return
-        col = _active_column(self.bundle, band["cols"], self.cursor.t)
+        col = _active_column(self.bundle, band.cols, self.cursor.t)
         if col is None:
             self._hover.set(None)
             return
         self._hover.set(self.bundle.player_ids[col])
 
     def _on_axes_leave(self, event) -> None:
-        if self._hover is not None and event.inaxes is self.ax:
-            self._local_hover = False
-            self._hover.set(None)
+        if event.inaxes is self.ax:
+            if self._time_hover is not None:
+                self._time_hover.set(None)
+            if self._hover is not None:
+                self._local_hover = False
+                self._hover.set(None)
+
+    def _on_time_hover_change(self, frame: int | None) -> None:
+        if self._hover_line is None:
+            return
+        if frame is None:
+            self._hover_line.set_visible(False)
+        else:
+            self._hover_line.set_xdata([frame, frame])
+            self._hover_line.set_visible(True)
+        refresh_figure(self.fig)
 
     def _on_hover_change(self, person_id: str | None) -> None:
         self._apply_row_highlight(person_id)
@@ -149,11 +168,11 @@ class PositionPlotView:
             self._tooltip.hide()
             return
         for band in self._row_bands:
-            if col in band["cols"]:
+            if col in band.cols:
                 t0, t1 = self.time_window()
                 x = min(max(self.cursor.t, t0), t1 - 1)
-                y = 0.5 * (band["y0"] + band["y1"])
-                related = [self.bundle.player_ids[c] for c in band["cols"]]
+                y = 0.5 * (band.y0 + band.y1)
+                related = [self.bundle.player_ids[c] for c in band.cols]
                 self._tooltip.show_at(
                     self.bundle,
                     person_id,
@@ -169,7 +188,6 @@ class PositionPlotView:
         self.resolution = max(1, int(resolution))
         self._redraw_full()
 
-    # Back-compat alias used by older call sites / tests
     def set_smoothing(self, smoothing: int) -> None:
         self.set_resolution(smoothing)
 
@@ -190,9 +208,18 @@ class PositionPlotView:
     def set_period(self, period: str | None) -> None:
         self._redraw_full()
 
+    def set_stack(self, stack: PositionStack) -> None:
+        self.stack = stack
+        self._redraw_full()
+
+    def set_layer_enabled(self, name: str, enabled: bool) -> None:
+        self.stack.set_enabled(name, enabled)
+        self._redraw_full()
+
     def apply_view_range(self) -> None:
         t0, t1 = self.view_range.limits()
         self.ax.set_xlim(t0, t1)
+        self._draw_minute_axis(t0, t1)
         if self._playhead is not None:
             self._playhead.set_xdata([self.cursor.t, self.cursor.t])
         refresh_figure(self.fig)
@@ -210,97 +237,24 @@ class PositionPlotView:
         return self.resolution * self.bundle.analytics_stride / self.bundle.frame_rate
 
     def time_window(self) -> tuple[int, int]:
-        """Inclusive start / exclusive end frame for the visible window."""
         return self.view_range.limits()
 
     # ------------------------------------------------------------- rendering
 
-    def _frame_mask(self) -> np.ndarray:
-        """Boolean mask over tracking frames that pass ball/possession filters."""
-        n = self.bundle.total_frames
-        mask = np.ones(n, dtype=bool)
-        if self.ball_in_play:
-            status = self.bundle.ball[:, 3]
-            mask &= np.isfinite(status) & (status == 1)
-        if self.possession_filter == POSSESSION_HOME:
-            mask &= self.bundle.ball_possession == 1
-        elif self.possession_filter == POSSESSION_AWAY:
-            mask &= self.bundle.ball_possession == 2
-        elif self.possession_filter == POSSESSION_CONTESTED:
-            mask &= self.bundle.ball_possession == 0
-        return mask
+    def _position_context(self) -> PositionContext:
+        return PositionContext.prepare(
+            self.bundle,
+            resolution=self.resolution,
+            team_focus=self.team_focus,
+            home_at_bottom=self.home_at_bottom,
+            ball_in_play=self.ball_in_play,
+            possession_filter=self.possession_filter,
+            time_window=self.time_window(),
+        )
 
-    def _bin_visible(self, edges: np.ndarray, frame_mask: np.ndarray) -> np.ndarray:
-        """Per-bin visibility from the fraction of tracking frames that pass filters."""
-        indices = self.bundle.analytics_frame_indices
-        n_bins = len(edges) - 1
-        visible = np.ones(n_bins, dtype=bool)
-        if not (self.ball_in_play or self.possession_filter != POSSESSION_ALL):
-            return visible
-        for b in range(n_bins):
-            ta0, ta1 = int(edges[b]), int(edges[b + 1])
-            t0 = int(indices[ta0])
-            t1 = int(indices[min(ta1, len(indices) - 1)])
-            if t1 <= t0:
-                t1 = min(t0 + 1, self.bundle.total_frames)
-            segment = frame_mask[t0:t1]
-            if len(segment) == 0 or float(segment.mean()) < _BIN_VISIBLE_FRAC:
-                visible[b] = False
-        return visible
-
-    def _band_colors(
-        self,
-        team_id: str,
-        edges: np.ndarray,
-        bin_visible: np.ndarray,
-        *,
-        mirror_lateral: bool,
-        reverse_rows: bool,
-    ) -> tuple[np.ndarray, list[str], list[list[int]]]:
-        """RGB image block, row labels, and column lists per band."""
-        counts = self.bundle.role_counts
-        band_cols: list[list[int]] = []
-        labels: list[str] = []
-        row_map: dict[int, list[int]] = {}
-        for pid, row in self.bundle.player_row_order.items():
-            if self.bundle.team_map.get(pid) == team_id:
-                row_map.setdefault(row, []).append(self.bundle.player_index[pid])
-        row_keys = sorted(row_map)
-        if reverse_rows:
-            row_keys = list(reversed(row_keys))
-        for row in row_keys:
-            cols = row_map[row]
-            band_cols.append(cols)
-            shirts = [
-                str(self.bundle.player_registry[self.bundle.player_ids[c]].shirt_number)
-                for c in cols
-            ]
-            labels.append("/".join(shirts))
-
-        n_rows, n_bins = len(band_cols), len(edges) - 1
-        row_stride = _PLAYER_BAND + _PLAYER_GAP
-        img_h = max(0, n_rows * row_stride - (_PLAYER_GAP if n_rows else 0))
-        img = np.ones((img_h, n_bins, 3))
-        y_colors = list(reversed(ROLE_COLORS_Y)) if mirror_lateral else ROLE_COLORS_Y
-        for r, cols in enumerate(band_cols):
-            sel = np.ix_(edges[1:], cols)
-            sel_prev = np.ix_(edges[:-1], cols)
-            deltas = counts[sel].astype(np.int64) - counts[sel_prev].astype(np.int64)
-            total = deltas.sum(axis=(1, 2))
-            flat = deltas.sum(axis=1)
-            best = flat.argmax(axis=1)
-            base = r * row_stride
-            for b in range(n_bins):
-                if not bin_visible[b] or total[b] == 0:
-                    continue
-                x_role, y_role = best[b] // 5 - 2, best[b] % 5 - 2
-                img[base, b] = to_rgb(ROLE_COLORS_X[x_role + 2])
-                img[base + 1, b] = to_rgb(y_colors[y_role + 2])
-        return img, labels, band_cols
-
-    def _band_at_y(self, y: float) -> dict | None:
+    def _band_at_y(self, y: float) -> RowBand | None:
         for band in self._row_bands:
-            if band["y0"] <= y <= band["y1"]:
+            if band.y0 <= y <= band.y1:
                 return band
         return None
 
@@ -316,16 +270,15 @@ class PositionPlotView:
             return
         t0, t1 = self.time_window()
         for band in self._row_bands:
-            if col in band["cols"]:
-                self._highlight.set_xy((t0, band["y0"]))
+            if col in band.cols:
+                self._highlight.set_xy((t0, band.y0))
                 self._highlight.set_width(t1 - t0)
-                self._highlight.set_height(band["y1"] - band["y0"])
+                self._highlight.set_height(band.y1 - band.y0)
                 self._highlight.set_visible(True)
                 return
         self._highlight.set_visible(False)
 
     def _apply_sub_highlight(self, person_id: str | None) -> None:
-        """Bold substitution vlines for the hovered player and their row-mates."""
         active: set[int] = set()
         if person_id is not None:
             for pid in row_mates(self.bundle, person_id):
@@ -335,103 +288,47 @@ class PositionPlotView:
                 line.set_color("#111111")
                 line.set_linewidth(2.2)
                 line.set_alpha(1.0)
-                line.set_zorder(7)
+                line.set_zorder(31)
             else:
                 line.set_color("#555555")
                 line.set_linewidth(0.6)
                 line.set_alpha(0.6)
-                line.set_zorder(2)
+                line.set_zorder(30)
 
     def _redraw_full(self) -> None:
-        bundle = self.bundle
         ax = self.ax
         ax.clear()
         self._playhead = None
+        self._hover_line = None
         self._highlight = None
         self._tooltip = None
         self._row_bands = []
         self._sub_lines = {}
 
-        ta_total = bundle.total_analytics_frames
-        n_bins = max(1, ta_total // self.resolution)
-        edges = np.linspace(0, ta_total - 1, n_bins + 1).astype(int)
-        t0, t1 = self.time_window()
-        bin_visible = self._bin_visible(edges, self._frame_mask())
+        ctx = self._position_context()
+        self.stack.build(ax, self.bundle, ctx)
+        self._row_bands = list(ctx.row_bands)
+        self._sub_lines = dict(ctx.sub_lines)
 
-        home, away = bundle.meta.home_team_id, bundle.meta.guest_team_id
-        # Top block = team at top of vertical pitch; bottom block faces it.
-        blocks: list[tuple[str, bool, bool]] = []
-        if self.team_focus == "both":
-            if self.home_at_bottom:
-                blocks = [
-                    (away, True, False),
-                    (home, False, True),
-                ]
-            else:
-                blocks = [
-                    (home, True, False),
-                    (away, False, True),
-                ]
-        elif self.team_focus == "home":
-            blocks = [(home, not self.home_at_bottom, not self.home_at_bottom)]
-        else:
-            blocks = [(away, self.home_at_bottom, self.home_at_bottom)]
+        ax.set_yticks(ctx.yticks)
+        ax.set_yticklabels(ctx.ylabels, fontsize=6)
+        self._draw_minute_axis(ctx.t0, ctx.t1)
 
-        team_gap = np.ones((_TEAM_GAP_ROWS * (_PLAYER_BAND + _PLAYER_GAP), n_bins, 3))
-        parts: list[np.ndarray] = []
-        yticks: list[float] = []
-        ylabels: list[str] = []
-        offset = 0.0
-        row_stride = _PLAYER_BAND + _PLAYER_GAP
-        for i, (tid, reverse_rows, mirror_lateral) in enumerate(blocks):
-            img, labels, band_cols = self._band_colors(
-                tid, edges, bin_visible,
-                mirror_lateral=mirror_lateral, reverse_rows=reverse_rows,
-            )
-            if i > 0:
-                parts.append(team_gap)
-                offset += team_gap.shape[0]
-            parts.append(img)
-            for r, (label, cols) in enumerate(zip(labels, band_cols)):
-                y0 = offset + r * row_stride
-                y1 = y0 + _PLAYER_BAND
-                self._row_bands.append({"y0": y0, "y1": y1, "cols": cols})
-                yticks.append(y0 + _PLAYER_BAND / 2.0)
-                ylabels.append(label)
-            offset += img.shape[0]
-
-        stacked = np.concatenate(parts, axis=0) if parts else np.ones((1, n_bins, 3))
-        ax.imshow(
-            stacked,
-            aspect="auto",
-            interpolation="nearest",
-            extent=(0, bundle.total_frames, stacked.shape[0], 0),
+        self._playhead = ax.axvline(self.cursor.t, color="#d00000", linewidth=1.2, zorder=40)
+        hover_frame = self._time_hover.frame if self._time_hover is not None else None
+        self._hover_line = ax.axvline(
+            hover_frame if hover_frame is not None else self.cursor.t,
+            color="#0077cc",
+            linewidth=1.0,
+            linestyle="--",
+            alpha=0.9,
+            zorder=50,
+            visible=hover_frame is not None,
         )
-        ax.set_xlim(t0, t1)
-        ax.set_yticks(yticks)
-        ax.set_yticklabels(ylabels, fontsize=6)
-        ax.set_xticks([])
-
-        sub_frames: set[int] = set()
-        for ta in bundle.substitution_frames[1:-1]:
-            sub_frames.add(int(bundle.analytics_frame_indices[ta]))
-        for ev in bundle.events:
-            if "Substitution" in ev.event_type:
-                sub_frames.add(int(ev.frame_idx))
-        for t in sorted(sub_frames):
-            if t0 <= t < t1:
-                line = ax.axvline(t, color="#555555", linewidth=0.6, alpha=0.6, zorder=2)
-                self._sub_lines[t] = line
-
-        for _name, (lo, _hi) in bundle.section_ranges.items():
-            if t0 < lo < t1:
-                ax.axvline(lo, color="#000000", linewidth=1.0)
-
-        self._playhead = ax.axvline(self.cursor.t, color="#d00000", linewidth=1.2, zorder=8)
         self._highlight = Rectangle(
-            (t0, 0),
-            t1 - t0,
-            _PLAYER_BAND,
+            (ctx.t0, 0),
+            ctx.t1 - ctx.t0,
+            PLAYER_BAND,
             facecolor="#FFD54F",
             edgecolor="#FF8F00",
             linewidth=1.4,
@@ -442,7 +339,9 @@ class PositionPlotView:
         ax.add_patch(self._highlight)
         self._tooltip = PlayerTooltip(ax, self._tooltip_config)
         ax.set_title(
-            f"Tactical positions (bin ≈ {self.resolution_seconds:.0f}s)", fontsize=8
+            f"Tactical positions (bin ≈ {ctx.resolution_seconds(self.bundle):.0f}s)",
+            fontsize=8,
+            pad=16,
         )
         self.fig.tight_layout()
         if self._hover is not None:
@@ -452,9 +351,57 @@ class PositionPlotView:
                 self._update_tooltip(self._hover.person_id)
         refresh_figure(self.fig)
 
+    def _draw_minute_axis(self, t0: int, t1: int) -> None:
+        """Match-minute ticks along the top edge (a play-clock timeline)."""
+        ticks, labels = self._minute_ticks(t0, t1)
+        ax = self.ax
+        ax.set_xticks(ticks)
+        ax.set_xticklabels(labels, fontsize=6)
+        ax.xaxis.set_ticks_position("top")
+        ax.xaxis.set_label_position("top")
+        ax.tick_params(
+            axis="x",
+            top=True,
+            bottom=False,
+            labeltop=True,
+            labelbottom=False,
+            length=3,
+            pad=2,
+        )
+
+    def _minute_ticks(self, t0: int, t1: int) -> tuple[list[float], list[str]]:
+        fr = self.bundle.frame_rate
+        window_minutes = max(1.0, (t1 - t0) / fr / 60.0)
+        step = next(
+            (s for s in (1, 2, 5, 10, 15, 30) if window_minutes / s <= 10),
+            45,
+        )
+        ticks: list[float] = []
+        labels: list[str] = []
+        for name, (lo, hi) in self.bundle.section_ranges.items():
+            if hi <= t0 or lo >= t1:
+                continue
+            offset = _SECTION_MINUTE_OFFSET.get(name, 0)
+            span_lo = max(lo, t0)
+            span_hi = min(hi, t1)
+            section_minutes = int((hi - lo) / fr / 60) + 1
+            for minute in range(0, section_minutes + 1, step):
+                tick = lo + minute * 60 * fr
+                if span_lo <= tick <= span_hi:
+                    ticks.append(tick)
+                    labels.append(f"{minute + offset}'")
+        return ticks, labels
+
+
+_SECTION_MINUTE_OFFSET = {
+    "firstHalf": 0,
+    "secondHalf": 45,
+    "firstHalfExtra": 90,
+    "secondHalfExtra": 105,
+}
+
 
 def _active_column(bundle: PrecomputedBundle, cols: list[int], t: int) -> int | None:
-    """Column of the player on pitch in this band at frame t."""
     for c in cols:
         xy = bundle.frames[t, c, :2]
         if np.isfinite(xy).all():

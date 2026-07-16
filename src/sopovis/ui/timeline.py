@@ -27,6 +27,7 @@ from sopovis.render.timeline import (
 )
 from sopovis.ui.canvas import refresh_figure
 from sopovis.ui.cursor import FrameCursor
+from sopovis.ui.hover import TimeHoverLink
 from sopovis.ui.span_zoom import SpanZoomInteraction
 from sopovis.ui.time_window import ViewTimeRange
 
@@ -58,6 +59,8 @@ class TimelineControlView:
         self._playhead = None
         self._time_label = None
         self._tooltip = None
+        self._time_hover: TimeHoverLink | None = None
+        self._hover_line = None
         self._build()
         min_frames = max(1, int(min_zoom_seconds * bundle.frame_rate))
         self._span_zoom = SpanZoomInteraction(
@@ -87,6 +90,10 @@ class TimelineControlView:
     def set_period(self, period: str | None) -> None:
         self._build()
         self.on_scrub(self.cursor.t)
+
+    def bind_time_hover(self, time_hover: TimeHoverLink) -> None:
+        self._time_hover = time_hover
+        time_hover.subscribe(self._on_time_hover_change)
 
     def time_window(self) -> tuple[int, int]:
         return self.view_range.limits()
@@ -120,8 +127,12 @@ class TimelineControlView:
 
     def _on_motion(self, event) -> None:
         if event.inaxes is not self.ax:
+            if self._time_hover is not None:
+                self._time_hover.set(None)
             self._hide_tooltip()
             return
+        if self._time_hover is not None and event.xdata is not None:
+            self._time_hover.set(int(round(event.xdata)))
         target = self._find_hover_target(event)
         if target is None:
             self._hide_tooltip()
@@ -131,7 +142,19 @@ class TimelineControlView:
 
     def _on_axes_leave(self, event) -> None:
         if event.inaxes is self.ax:
+            if self._time_hover is not None:
+                self._time_hover.set(None)
             self._hide_tooltip()
+
+    def _on_time_hover_change(self, frame: int | None) -> None:
+        if self._hover_line is None:
+            return
+        if frame is None:
+            self._hover_line.set_visible(False)
+        else:
+            self._hover_line.set_xdata([frame, frame])
+            self._hover_line.set_visible(True)
+        refresh_figure(self.fig)
 
     def _find_hover_target(self, event) -> tuple[float, float, list[str]] | None:
         best = None
@@ -178,6 +201,7 @@ class TimelineControlView:
         self._playhead = None
         self._time_label = None
         self._tooltip = None
+        self._hover_line = None
         t0, t1 = self.time_window()
         ax.set_xlim(t0, t1)
         ax.set_ylim(self._geom.y_lo, self._geom.y_hi)
@@ -208,6 +232,16 @@ class TimelineControlView:
         ax.tick_params(axis="x", pad=2)
 
         self._playhead = ax.axvline(self.cursor.t, color="#d00000", linewidth=1.4, zorder=100)
+        hover_frame = self._time_hover.frame if self._time_hover is not None else None
+        self._hover_line = ax.axvline(
+            hover_frame if hover_frame is not None else self.cursor.t,
+            color="#0077cc",
+            linewidth=1.0,
+            linestyle="--",
+            alpha=0.9,
+            zorder=110,
+            visible=hover_frame is not None,
+        )
         self._time_label = ax.text(
             0.5, 1.02, bundle.clock_label(self.cursor.t), transform=ax.transAxes,
             ha="center", va="bottom",

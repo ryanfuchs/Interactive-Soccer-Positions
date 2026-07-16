@@ -17,11 +17,16 @@ from matplotlib.figure import Figure
 
 from sopovis.bundle.bundle import PrecomputedBundle
 from sopovis.config.presets import BUILTIN_PRESET_DIR, Preset, find_presets, load_preset
-from sopovis.config.settings import UserSettings, load_settings
+from sopovis.config.settings import (
+    DEFAULT_SETTINGS_PATH,
+    UserSettings,
+    load_settings,
+    save_settings,
+)
 from sopovis.model.sections import SECTION_ORDER, section_display_name
 from sopovis.ui.app import AppController
 
-_PLAY_INTERVAL_MS = 80  # step=2 at 80 ms ≈ real-time 25 fps
+# Playback: step=2 every 80 ms ≈ real-time 25 fps (see UserSettings.play_interval_ms).
 _SPEED_BY_LABEL = {"0.5×": 0.5, "1×": 1.0, "2×": 2.0, "4×": 4.0, "8×": 8.0}
 _TEAM_OPTIONS = (("Home", "home"), ("Both", "both"), ("Away", "away"))
 _POSSESSION_OPTIONS = (
@@ -86,7 +91,7 @@ class MatchDesktopApp:
         self.preset = preset
 
         self._playing = False
-        self._play_step = 2
+        self._play_step = max(1, round(2 * self.settings.default_playback_speed))
         self._play_after_id: str | None = None
         self._layer_vars: dict[str, tk.BooleanVar] = {}
         self._canvases: list[FigureCanvasTkAgg] = []
@@ -177,6 +182,18 @@ class MatchDesktopApp:
             "Clear time zoom (or double-click the timeline / position plot)",
         )
 
+        self._settings_dialog: tk.Toplevel | None = None
+        ttk.Style(self.root).configure("Gear.TButton", padding=(2, 1))
+        self._settings_btn = ttk.Button(
+            app_bar,
+            text="⚙",
+            width=2,
+            style="Gear.TButton",
+            command=self._open_settings_dialog,
+        )
+        self._settings_btn.pack(side="right")
+        _Tooltip(self._settings_btn, "Settings: save or reset startup defaults")
+
         # ------------------------------------------------------- timeline row
         timeline_frame = ttk.Labelframe(self.root, text="Timeline", padding=(6, 2, 6, 4))
         timeline_frame.pack(fill="x", padx=8, pady=(0, 4))
@@ -203,7 +220,7 @@ class MatchDesktopApp:
         _Tooltip(self._frame_label, "Current tracking frame")
 
         ttk.Label(timeline_bar, text="Speed").pack(side="left")
-        self._speed_var = tk.StringVar(value="1×")
+        self._speed_var = tk.StringVar(value=self._speed_label(self.settings.default_playback_speed))
         self._speed_menu = tk.OptionMenu(
             timeline_bar,
             self._speed_var,
@@ -231,7 +248,7 @@ class MatchDesktopApp:
         plot_bar = ttk.Frame(plot_col)
         plot_bar.pack(fill="x", pady=(0, 2))
 
-        self._team_var = tk.StringVar(value="both")
+        self._team_var = tk.StringVar(value=self.settings.default_team_focus)
         ttk.Label(plot_bar, text="Teams").pack(side="left", padx=(0, 4))
         for label, value in _TEAM_OPTIONS:
             ttk.Radiobutton(
@@ -242,7 +259,7 @@ class MatchDesktopApp:
                 command=self._on_team_focus,
             ).pack(side="left", padx=(0, 4))
 
-        self._ball_in_play_var = tk.BooleanVar(value=False)
+        self._ball_in_play_var = tk.BooleanVar(value=self.settings.default_ball_in_play)
         in_play = ttk.Checkbutton(
             plot_bar,
             text="In play",
@@ -253,8 +270,10 @@ class MatchDesktopApp:
         _Tooltip(in_play, "Blank time bins where the ball is out of play")
 
         ttk.Label(plot_bar, text="Possession").pack(side="left")
-        self._possession_var = tk.StringVar(value="All")
         self._possession_keys = {label: value for label, value in _POSSESSION_OPTIONS}
+        self._possession_var = tk.StringVar(
+            value=self._possession_label(self.settings.default_possession_filter)
+        )
         self._possession_menu = tk.OptionMenu(
             plot_bar,
             self._possession_var,
@@ -269,8 +288,8 @@ class MatchDesktopApp:
         self._resolution_var = tk.DoubleVar(value=float(self.settings.default_resolution))
         self._resolution_scale = tk.Scale(
             plot_bar,
-            from_=5,
-            to=600,
+            from_=self.settings.min_resolution,
+            to=self.settings.max_resolution,
             orient="horizontal",
             variable=self._resolution_var,
             length=110,
@@ -281,6 +300,10 @@ class MatchDesktopApp:
         self._resolution_scale.pack(side="left", padx=(4, 0))
         self._resolution_scale.bind("<ButtonRelease-1>", self._on_resolution_release)
         _Tooltip(self._resolution_scale, "Time-bin width of the role heatmap")
+
+        self._position_layers_btn, self._position_layers_menu = self._make_layer_menu(plot_bar)
+        self._position_layers_btn.pack(side="left", padx=(8, 0))
+        _Tooltip(self._position_layers_btn, "Show / hide position overlays")
 
         self._embed_figure(plot_col, self.fig_plot)
 
@@ -294,7 +317,7 @@ class MatchDesktopApp:
         self._pitch_layers_btn.pack(side="left")
         _Tooltip(self._pitch_layers_btn, "Show / hide pitch overlays")
 
-        self._home_bottom_var = tk.BooleanVar(value=True)
+        self._home_bottom_var = tk.BooleanVar(value=self.settings.default_home_at_bottom)
         self._orient_btn = ttk.Button(
             pitch_bar,
             text="⇅",
@@ -312,6 +335,21 @@ class MatchDesktopApp:
         )
         self._embed_figure(pitch_col, self.fig_pitch)
 
+    @staticmethod
+    def _speed_label(speed: float) -> str:
+        """Menu label for a playback-speed multiplier (nearest match, else 1×)."""
+        for label, value in _SPEED_BY_LABEL.items():
+            if abs(value - speed) < 1e-6:
+                return label
+        return "1×"
+
+    def _possession_label(self, value: str) -> str:
+        """Menu label for a possession-filter value (falls back to 'All')."""
+        for label, val in _POSSESSION_OPTIONS:
+            if val == value:
+                return label
+        return "All"
+
     def _make_layer_menu(self, parent: ttk.Frame) -> tuple[ttk.Menubutton, tk.Menu]:
         button = ttk.Menubutton(parent, text="Layers")
         menu = tk.Menu(button, tearoff=0)
@@ -327,6 +365,7 @@ class MatchDesktopApp:
     def _rebuild_layer_toggles(self) -> None:
         self._pitch_layers_menu.delete(0, "end")
         self._timeline_layers_menu.delete(0, "end")
+        self._position_layers_menu.delete(0, "end")
         self._layer_vars.clear()
 
         for el in self.app.pitch.scene.elements:
@@ -347,6 +386,15 @@ class MatchDesktopApp:
                 command=lambda name=el.meta.name, v=var: self._on_timeline_layer_toggle(name, v),
             )
 
+        for el in self.app.position_plot.stack.elements:
+            var = tk.BooleanVar(value=el.meta.enabled)
+            self._layer_vars[f"position:{el.meta.name}"] = var
+            self._position_layers_menu.add_checkbutton(
+                label=el.meta.ui_label(),
+                variable=var,
+                command=lambda name=el.meta.name, v=var: self._on_position_layer_toggle(name, v),
+            )
+
     def _apply_time_window(self) -> None:
         self._t0, t1 = self.app.view_range.limits()
         self._t_max = max(self._t0, t1 - 1)
@@ -365,6 +413,191 @@ class MatchDesktopApp:
 
     def _on_reset_zoom(self) -> None:
         self.app.reset_zoom()
+
+    def _on_save_defaults(self) -> None:
+        """Persist the current view state to settings.yaml as startup defaults."""
+        self.settings = self.settings.model_copy(
+            update={
+                "default_preset": self._preset_var.get(),
+                "default_playback_speed": _SPEED_BY_LABEL.get(self._speed_var.get(), 1.0),
+                "default_team_focus": self._team_var.get(),
+                "default_possession_filter": self._possession_keys.get(
+                    self._possession_var.get(), "all"
+                ),
+                "default_ball_in_play": self._ball_in_play_var.get(),
+                "default_home_at_bottom": self._home_bottom_var.get(),
+                "default_resolution": int(self._resolution_var.get()),
+            }
+        )
+        self.app.settings = self.settings
+        try:
+            save_settings(self.settings)
+        except OSError as exc:
+            self._set_settings_status(f"Save failed: {exc}")
+        else:
+            self._set_settings_status(f"Saved to {DEFAULT_SETTINGS_PATH.name} ✓")
+
+    def _on_reset_defaults(self) -> None:
+        """Restore built-in view defaults, apply them live, and persist them."""
+        defaults = UserSettings()
+        self.settings = self.settings.model_copy(
+            update={
+                "default_preset": defaults.default_preset,
+                "default_playback_speed": defaults.default_playback_speed,
+                "default_team_focus": defaults.default_team_focus,
+                "default_possession_filter": defaults.default_possession_filter,
+                "default_ball_in_play": defaults.default_ball_in_play,
+                "default_home_at_bottom": defaults.default_home_at_bottom,
+                "default_resolution": defaults.default_resolution,
+            }
+        )
+        self.app.settings = self.settings
+        self._apply_view_settings(self.settings)
+        try:
+            save_settings(self.settings)
+        except OSError as exc:
+            self._set_settings_status(f"Reset failed: {exc}")
+        else:
+            self._set_settings_status("Restored built-in defaults ✓")
+
+    def _apply_view_settings(self, s: UserSettings) -> None:
+        """Push the view-state settings onto the live widgets and controller."""
+        if self._playing:
+            self._stop_play()
+
+        if s.default_preset in self._presets:
+            self._preset_var.set(s.default_preset)
+            self.preset = load_preset(self._presets[s.default_preset])
+            self.app.on_preset_change(self.preset)
+            self._rebuild_layer_toggles()
+
+        self._speed_var.set(self._speed_label(s.default_playback_speed))
+        self.app.timeline.on_speed_change(s.default_playback_speed)
+        self._play_step = max(1, round(2 * s.default_playback_speed))
+
+        self._team_var.set(s.default_team_focus)
+        self.app.position_plot.set_team_focus(s.default_team_focus)
+
+        self._possession_var.set(self._possession_label(s.default_possession_filter))
+        self.app.position_plot.set_possession_filter(s.default_possession_filter)
+
+        self._ball_in_play_var.set(s.default_ball_in_play)
+        self.app.position_plot.set_ball_in_play(s.default_ball_in_play)
+
+        self._home_bottom_var.set(s.default_home_at_bottom)
+        self.app.set_home_at_bottom(s.default_home_at_bottom)
+
+        self._resolution_var.set(float(s.default_resolution))
+        self.app.set_resolution(s.default_resolution)
+
+        self._refresh_all()
+
+    def _open_settings_dialog(self) -> None:
+        if self._settings_dialog is not None and self._settings_dialog.winfo_exists():
+            self._settings_dialog.lift()
+            self._settings_dialog.focus_set()
+            return
+
+        dialog = tk.Toplevel(self.root)
+        self._settings_dialog = dialog
+        dialog.title("Settings")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        dialog.protocol("WM_DELETE_WINDOW", self._close_settings_dialog)
+
+        wrap = 380
+        body = ttk.Frame(dialog, padding=18)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(
+            body,
+            text="Startup defaults",
+            font=("TkDefaultFont", 13, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            body,
+            text="Preferences are stored in settings.yaml and loaded when the app starts.",
+            wraplength=wrap,
+            justify="left",
+            foreground="#333333",
+        ).pack(anchor="w", pady=(4, 14))
+
+        ttk.Label(
+            body, text="Save current view", font=("TkDefaultFont", 10, "bold")
+        ).pack(anchor="w")
+        ttk.Label(
+            body,
+            text=(
+                "Stores the current preset, playback speed, team and possession "
+                "filters, pitch orientation and heatmap resolution as the startup "
+                "defaults."
+            ),
+            wraplength=wrap,
+            justify="left",
+        ).pack(anchor="w", pady=(2, 12))
+
+        ttk.Label(
+            body, text="Reset to defaults", font=("TkDefaultFont", 10, "bold")
+        ).pack(anchor="w")
+        ttk.Label(
+            body,
+            text="Puts those same options back to the built-in values.",
+            wraplength=wrap,
+            justify="left",
+        ).pack(anchor="w", pady=(2, 12))
+
+        ttk.Label(
+            body,
+            text=(
+                "Other keys (match data folder, cache, analytics stride, zoom "
+                "behaviour) are edited directly in the file:"
+            ),
+            wraplength=wrap,
+            justify="left",
+            foreground="#555555",
+        ).pack(anchor="w")
+        ttk.Label(
+            body,
+            text=str(DEFAULT_SETTINGS_PATH),
+            wraplength=wrap,
+            justify="left",
+            foreground="#888888",
+        ).pack(anchor="w", pady=(2, 0))
+
+        ttk.Separator(body, orient="horizontal").pack(fill="x", pady=16)
+
+        btns = ttk.Frame(body)
+        btns.pack(fill="x")
+        ttk.Button(
+            btns, text="Save current view", width=18, command=self._on_save_defaults
+        ).pack(side="left")
+        ttk.Button(
+            btns, text="Reset to defaults", width=18, command=self._on_reset_defaults
+        ).pack(side="left", padx=(10, 0))
+        ttk.Button(
+            btns, text="Close", width=8, command=self._close_settings_dialog
+        ).pack(side="right")
+
+        self._settings_status = tk.StringVar(value="")
+        ttk.Label(
+            body, textvariable=self._settings_status, foreground="#1a7f37"
+        ).pack(anchor="w", pady=(14, 0))
+
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + 60
+        y = self.root.winfo_rooty() + 60
+        dialog.geometry(f"+{x}+{y}")
+
+    def _close_settings_dialog(self) -> None:
+        if self._settings_dialog is not None:
+            self._settings_dialog.destroy()
+            self._settings_dialog = None
+        self._settings_status = None
+
+    def _set_settings_status(self, text: str) -> None:
+        status = getattr(self, "_settings_status", None)
+        if status is not None:
+            status.set(text)
 
     # -------------------------------------------------------------- callbacks
 
@@ -439,6 +672,10 @@ class MatchDesktopApp:
         self.app.toggle_timeline_layer(name, var.get())
         self._refresh_all()
 
+    def _on_position_layer_toggle(self, name: str, var: tk.BooleanVar) -> None:
+        self.app.toggle_position_layer(name, var.get())
+        self._refresh_all()
+
     def _refresh_all(self) -> None:
         for canvas in self._canvases:
             canvas.draw()
@@ -473,7 +710,7 @@ class MatchDesktopApp:
             self._stop_play()
             return
         self._on_scrub(t)
-        self._play_after_id = self.root.after(_PLAY_INTERVAL_MS, self._play_tick)
+        self._play_after_id = self.root.after(self.settings.play_interval_ms, self._play_tick)
 
     def _on_close(self) -> None:
         self._stop_play()

@@ -19,7 +19,7 @@ layers:
     z_order: 30
     category: overlay
     enabled: false
-    style: { team: both, color: "#dddddd", line_width: 1.2, opacity: 0.5 }
+    style: { team: home, color: "#dddddd", line_width: 1.2, opacity: 0.5 }
 
   - name: team_glyphs
     display_name: Players
@@ -89,3 +89,20 @@ timeline:
     display_name: Shots & goals
     type: ShotMarkers
     z_order: 16
+
+position:
+  - name: role_heatmap
+    display_name: Role heatmap
+    type: RoleHeatmap
+    z_order: 10
+    category: data
+
+  - name: sections
+    display_name: Periods
+    type: SectionBoundaries
+    z_order: 20
+
+  - name: substitutions
+    display_name: Substitutions
+    type: SubstitutionMarkers
+    z_order: 30
