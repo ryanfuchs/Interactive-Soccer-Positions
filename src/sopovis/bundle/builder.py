@@ -1,37 +1,82 @@
-"""BundleBuilder — MatchState → PrecomputedBundle."""
+"""BundleBuilder — MatchState → PrecomputedBundle via registered producers.
+
+Core products are computed eagerly so the UI opens fully populated; every
+other registered product is computed lazily on first ``bundle.product(name)``
+access. Both paths share the same per-product disk cache.
+"""
 from __future__ import annotations
 
-from sopovis.analytics.pipeline import (
-    ShapeGraphBuilder,
-    TacticalPositionInferer,
-    infer_attack_directions,
+from typing import Any
+
+from sopovis.analytics.producers import (
+    ProducerRegistry,
+    default_producer_registry,
 )
 from sopovis.bundle.bundle import PrecomputedBundle
+from sopovis.bundle.cache import ProductCache
 from sopovis.model.state import MatchState
+
+#: Products required by the default presets' always-on layers.
+CORE_PRODUCTS = ("attack_directions", "shape_graph", "roles")
+
+
+class ProductSupplier:
+    """Resolves a product name to a value: cache hit or compute (with deps)."""
+
+    def __init__(
+        self,
+        state: MatchState,
+        registry: ProducerRegistry,
+        stride: int,
+        cache: ProductCache | None = None,
+        progress: bool = False,
+    ):
+        self.state = state
+        self.registry = registry
+        self.stride = stride
+        self.cache = cache
+        self.progress = progress
+
+    def get(self, name: str, memo: dict[str, Any]) -> Any:
+        producer = self.registry.get(name)
+        if self.cache is not None:
+            cached = self.cache.load(self.state, producer, self.stride)
+            if cached is not None:
+                return cached
+
+        deps: dict[str, Any] = {}
+        for dep in producer.requires:
+            if dep not in memo:
+                memo[dep] = self.get(dep, memo)
+            deps[dep] = memo[dep]
+        if self.progress:
+            print(f"      Computing {name!r} …", flush=True)
+        value = producer.compute(self.state, deps, self.stride, progress=self.progress)
+
+        if self.cache is not None:
+            self.cache.save(self.state, producer, self.stride, value)
+        return value
 
 
 class BundleBuilder:
-    def __init__(self, analytics_stride: int = 5):
+    def __init__(
+        self,
+        analytics_stride: int = 5,
+        registry: ProducerRegistry | None = None,
+        cache: ProductCache | None = None,
+    ):
         self.analytics_stride = analytics_stride
+        self.registry = registry or default_producer_registry()
+        self.cache = cache
 
     def build(self, state: MatchState, progress: bool = False) -> PrecomputedBundle:
-        if progress:
-            n = (state.total_frames + self.analytics_stride - 1) // self.analytics_stride
-            print(
-                f"      Shape graphs + roles over {n:,} analytics frames "
-                f"(stride={self.analytics_stride}, 2 teams) …",
-                flush=True,
-            )
-
-        # 1. shape graphs (+ per-frame roles inside the same pass)
-        builder = ShapeGraphBuilder(stride=self.analytics_stride)
-        shape_result = builder.run(state, progress=progress)
-
-        if progress:
-            print("      Aggregating role histograms and player rows …", flush=True)
-
-        # 2. tactical roles (temporal aggregation)
-        role_result = TacticalPositionInferer().run(state, shape_result, builder)
+        supplier = ProductSupplier(
+            state, self.registry, self.analytics_stride, self.cache, progress
+        )
+        products: dict[str, Any] = {}
+        for name in CORE_PRODUCTS:
+            if name not in products:
+                products[name] = supplier.get(name, products)
 
         return PrecomputedBundle(
             frames=state.frames,
@@ -47,13 +92,8 @@ class BundleBuilder:
             meta=state.meta,
             teams=state.teams,
             analytics_stride=self.analytics_stride,
-            analytics_frame_indices=shape_result.frame_indices,
-            shape_edges=shape_result.edges,
-            tactical_roles=role_result.tactical_roles,
-            role_counts=role_result.role_counts,
-            player_row_order=role_result.player_row_order,
-            substitution_frames=role_result.substitution_frames,
-            attack_directions=infer_attack_directions(state),
+            products=products,
+            supplier=supplier,
         )
 
 
@@ -64,25 +104,8 @@ def build_bundle(
     progress: bool = True,
     verbose: bool = False,
 ) -> PrecomputedBundle:
-    """Build a bundle, using the disk cache when source and config match."""
-    from sopovis.bundle.cache import BundleCache
-
-    def _v(msg: str) -> None:
-        if verbose:
-            print(msg, flush=True)
-
-    if cache_dir is None:
-        _v("      Cache disabled — computing from scratch …")
-        return BundleBuilder(analytics_stride).build(state, progress=progress)
-
-    cache = BundleCache(cache_dir)
-    cached = cache.load(state, analytics_stride)
-    if cached is not None:
-        _v(f"      Cache hit ({cache_dir}/{state.meta.match_id})")
-        return cached
-
-    _v("      Cache miss — this can take several minutes on first run …")
-    bundle = BundleBuilder(analytics_stride).build(state, progress=progress)
-    _v(f"      Saving cache → {cache_dir}/{state.meta.match_id}")
-    cache.save(bundle, state)
-    return bundle
+    """Build a bundle, using the per-product disk cache when available."""
+    cache = ProductCache(cache_dir) if cache_dir is not None else None
+    if verbose and cache is None:
+        print("      Cache disabled — computing from scratch …", flush=True)
+    return BundleBuilder(analytics_stride, cache=cache).build(state, progress=progress)

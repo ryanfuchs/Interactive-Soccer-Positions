@@ -15,11 +15,11 @@ layers:
 
   - name: shape_graph
     display_name: Shape graph
-    type: ShapeGraphOverlay
+    type: EdgeSetOverlay
     z_order: 30
     category: overlay
     enabled: false
-    style: { team: home, color: "#dddddd", line_width: 1.2, opacity: 0.5 }
+    style: { relation: shape_graph, team: home, color: "#dddddd", line_width: 1.2, opacity: 0.5 }
 
   - name: team_glyphs
     display_name: Players

@@ -38,8 +38,8 @@ MatchDesktopApp(bundle, preset="tactical").run()
 | Path | Content |
 |---|---|
 | `src/sopovis/io` | DFL XML ingestion (floodlight-based) → `MatchState` |
-| `src/sopovis/analytics` | Shape graph + tactical role inference |
-| `src/sopovis/bundle` | `PrecomputedBundle` + disk cache |
+| `src/sopovis/analytics` | Producer registry: shape graphs, tactical roles, proximity |
+| `src/sopovis/bundle` | `PrecomputedBundle` (products map) + per-product disk cache |
 | `src/sopovis/render/pitch` | Pitch overlays — static + dynamic elements |
 | `src/sopovis/render/timeline` | Timeline strip overlays |
 | `src/sopovis/render/position` | Position heatmap overlays |

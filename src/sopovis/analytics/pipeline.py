@@ -1,14 +1,12 @@
-"""Per-frame analytics pipeline for shape graphs and tactical roles.
+"""Per-frame analytics and temporal aggregation — pure computation.
 
-Per team per frame:
-    positions → shape graph → position-plot roles
-
-`ShapeGraphBuilder` and `TacticalPositionInferer` wrap this pipeline for whole
-matches, sampling every `stride`-th frame (analytics frames).
+Per team per frame: positions → shape-graph edges / tactical roles.
+Whole-match orchestration (frame iteration, dependencies, caching) lives in
+``sopovis.analytics.producers``.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -16,66 +14,42 @@ from sopovis.analytics.roles import UNSET, compute_roles, role_count_index
 from sopovis.analytics.shape_graph import points_to_shape_edges
 from sopovis.model.state import MatchState
 
-
-@dataclass
-class FrameAnalytics:
-    """Result of the per-frame pipeline for one team."""
-
-    columns: list[int]  # MatchState player columns used, in point order
-    edges: np.ndarray  # (E, 2) shape-graph edges as column pairs
-    roles: np.ndarray  # (K, 2) x_role, y_role per point
-    extrema: dict[str, float]
-    centers: np.ndarray  # unused with position-plot roles; kept for bundle compatibility
+# --------------------------------------------------------------- per frame
 
 
-def shape_graph_main(
-    points: np.ndarray,
-    attacking_positive_x: bool,
-    columns: list[int] | None = None,
-) -> FrameAnalytics:
-    """End-to-end pipeline on one team's outfield positions."""
+def frame_shape_edges(points: np.ndarray, columns: list[int]) -> np.ndarray:
+    """``(E, 2)`` shape-graph edges as MatchState column pairs for one team-frame.
+
+    Degenerate frames (< 2 points, NaNs, Qhull failures) yield no edges.
+    """
     k = len(points)
-    columns = columns if columns is not None else list(range(k))
-
     if k < 2 or not np.isfinite(points).all():
-        return FrameAnalytics(
-            columns=columns,
-            edges=np.empty((0, 2), dtype=np.int32),
-            roles=np.full((k, 2), UNSET, dtype=np.int8),
-            extrema={"min_x": 1e4, "max_x": -1e4, "min_y": 1e4, "max_y": -1e4},
-            centers=np.empty((0, 2)),
-        )
-
+        return np.empty((0, 2), dtype=np.int32)
     try:
         graph = points_to_shape_edges(points)
-        roles = compute_roles(points, attacking_positive_x)
     except (ZeroDivisionError, ValueError, FloatingPointError):
-        return FrameAnalytics(
-            columns=columns,
-            edges=np.empty((0, 2), dtype=np.int32),
-            roles=np.full((k, 2), UNSET, dtype=np.int8),
-            extrema={"min_x": 1e4, "max_x": -1e4, "min_y": 1e4, "max_y": -1e4},
-            centers=np.empty((0, 2)),
-        )
+        return np.empty((0, 2), dtype=np.int32)
 
     col_arr = np.asarray(columns, dtype=np.int32)
     edge_list = [
-        (int(col_arr[u]), int(col_arr[v]))
-        for u, v in graph.edges
-        if u < k and v < k
+        (int(col_arr[u]), int(col_arr[v])) for u, v in graph.edges if u < k and v < k
     ]
-    edges = (
+    return (
         np.asarray(edge_list, dtype=np.int32)
         if edge_list
         else np.empty((0, 2), dtype=np.int32)
     )
-    return FrameAnalytics(
-        columns=columns,
-        edges=edges,
-        roles=roles,
-        extrema={"min_x": 1e4, "max_x": -1e4, "min_y": 1e4, "max_y": -1e4},
-        centers=np.empty((0, 2)),
-    )
+
+
+def frame_roles(points: np.ndarray, attacking_positive_x: bool) -> np.ndarray:
+    """``(K, 2)`` tactical roles per point; all-UNSET when inference fails."""
+    k = len(points)
+    if k < 2 or not np.isfinite(points).all():
+        return np.full((k, 2), UNSET, dtype=np.int8)
+    try:
+        return compute_roles(points, attacking_positive_x)
+    except (ZeroDivisionError, ValueError, FloatingPointError):
+        return np.full((k, 2), UNSET, dtype=np.int8)
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +78,7 @@ def infer_attack_directions(state: MatchState) -> dict[tuple[str, str], bool]:
     return directions
 
 
-def _outfield_columns(state: MatchState, team_id: str) -> list[int]:
+def outfield_columns(state: MatchState, team_id: str) -> list[int]:
     return [
         c
         for c in state.team_columns(team_id)
@@ -112,127 +86,52 @@ def _outfield_columns(state: MatchState, team_id: str) -> list[int]:
     ]
 
 
-@dataclass
-class ShapeGraphResult:
-    """Shape graphs for all analytics frames (compact edge-array store)."""
-
-    stride: int
-    frame_indices: np.ndarray  # (Ta,) MatchState frame index per analytics frame
-    edges: dict[str, list[np.ndarray]]  # team_id → per-analytics-frame (E, 2) arrays
-    team_ids: list[str] = field(default_factory=list)
-
-    def to_networkx(self, ta: int, team_id: str):
-        import networkx as nx
-
-        g = nx.Graph()
-        g.add_edges_from(map(tuple, self.edges[team_id][ta]))
-        return g
-
-
-class ShapeGraphBuilder:
-    """Build shape graphs over all analytics frames."""
-
-    def __init__(self, stride: int = 5):
-        self.stride = stride
-
-    def run(self, state: MatchState, progress: bool = False) -> ShapeGraphResult:
-        directions = infer_attack_directions(state)
-        team_ids = [state.meta.home_team_id, state.meta.guest_team_id]
-        outfield = {tid: _outfield_columns(state, tid) for tid in team_ids}
-
-        frame_indices = np.arange(0, state.total_frames, self.stride)
-        edges: dict[str, list[np.ndarray]] = {tid: [] for tid in team_ids}
-        self._frame_analytics: dict[str, list[FrameAnalytics]] = {
-            tid: [] for tid in team_ids
-        }
-
-        iterator = enumerate(frame_indices)
-        if progress:
-            iterator = _progress(iterator, len(frame_indices))
-
-        for _ta, t in iterator:
-            section = state.section_of(int(t))
-            for tid in team_ids:
-                cols = outfield[tid]
-                xy = state.frames[t, cols, :2]
-                present = np.isfinite(xy).all(axis=1)
-                cols_present = [c for c, p in zip(cols, present) if p]
-                fa = shape_graph_main(
-                    xy[present],
-                    directions[(tid, section)],
-                    columns=cols_present,
-                )
-                edges[tid].append(fa.edges)
-                self._frame_analytics[tid].append(fa)
-
-        return ShapeGraphResult(
-            stride=self.stride,
-            frame_indices=frame_indices,
-            edges=edges,
-            team_ids=team_ids,
-        )
+# ------------------------------------------------------ temporal aggregation
 
 
 @dataclass
 class RoleResult:
-    stride: int
-    frame_indices: np.ndarray  # (Ta,)
     tactical_roles: np.ndarray  # (Ta, N, 2) int8, UNSET where absent
     role_counts: np.ndarray  # (Ta, N, 25) int32 cumulative histogram
     substitution_frames: list[int]  # analytics-frame indices of lineup changes
     player_row_order: dict[str, int]  # person_id → stable heatmap row (per team)
 
 
-class TacticalPositionInferer:
-    """Infer tactical roles and accumulate temporal role statistics."""
+def aggregate_roles(
+    state: MatchState, roles: np.ndarray, presence: np.ndarray
+) -> RoleResult:
+    """Cumulative role histogram, substitution detection and row ordering."""
+    ta_total = roles.shape[0]
+    counts = np.zeros((ta_total, roles.shape[1], 25), dtype=np.int32)
 
-    def run(
-        self, state: MatchState, shape_result: ShapeGraphResult, builder: ShapeGraphBuilder
-    ) -> RoleResult:
-        frame_indices = shape_result.frame_indices
-        ta_total = len(frame_indices)
-        n = len(state.player_ids)
+    # cumulative role histogram over all frames
+    for ta in range(ta_total):
+        if ta > 0:
+            counts[ta] = counts[ta - 1]
+        present_cols = np.nonzero(presence[ta])[0]
+        for c in present_cols:
+            idx = role_count_index(int(roles[ta, c, 0]), int(roles[ta, c, 1]))
+            counts[ta, c, idx] += 1
 
-        roles = np.full((ta_total, n, 2), UNSET, dtype=np.int8)
-        counts = np.zeros((ta_total, n, 25), dtype=np.int32)
-        presence = np.zeros((ta_total, n), dtype=bool)
+    # substitution detection — presence set change between analytics frames
+    sub_frames = [0]
+    for ta in range(1, ta_total):
+        if not np.array_equal(presence[ta], presence[ta - 1]):
+            sub_frames.append(ta)
+    sub_frames.append(ta_total - 1)
+    sub_frames = sorted(set(sub_frames))
 
-        for tid in shape_result.team_ids:
-            for ta, fa in enumerate(builder._frame_analytics[tid]):
-                cols = np.asarray(fa.columns, dtype=np.int32)
-                if len(cols):
-                    roles[ta, cols] = fa.roles
-                    presence[ta, cols] = True
+    team_ids = [state.meta.home_team_id, state.meta.guest_team_id]
+    row_order = _compute_player_ordering(
+        state, team_ids, roles, counts, presence, sub_frames
+    )
 
-        # cumulative role histogram over all frames
-        for ta in range(ta_total):
-            if ta > 0:
-                counts[ta] = counts[ta - 1]
-            present_cols = np.nonzero(presence[ta])[0]
-            for c in present_cols:
-                idx = role_count_index(int(roles[ta, c, 0]), int(roles[ta, c, 1]))
-                counts[ta, c, idx] += 1
-
-        # substitution detection — presence set change between analytics frames
-        sub_frames = [0]
-        for ta in range(1, ta_total):
-            if not np.array_equal(presence[ta], presence[ta - 1]):
-                sub_frames.append(ta)
-        sub_frames.append(ta_total - 1)
-        sub_frames = sorted(set(sub_frames))
-
-        row_order = _compute_player_ordering(
-            state, shape_result.team_ids, roles, counts, presence, sub_frames
-        )
-
-        return RoleResult(
-            stride=shape_result.stride,
-            frame_indices=frame_indices,
-            tactical_roles=roles,
-            role_counts=counts,
-            substitution_frames=sub_frames,
-            player_row_order=row_order,
-        )
+    return RoleResult(
+        tactical_roles=roles,
+        role_counts=counts,
+        substitution_frames=sub_frames,
+        player_row_order=row_order,
+    )
 
 
 def _compute_player_ordering(

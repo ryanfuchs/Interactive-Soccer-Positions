@@ -22,11 +22,20 @@ layers:
 
   - name: shape_graph
     display_name: Shape graph
-    type: ShapeGraphOverlay
+    type: EdgeSetOverlay
     z_order: 30
     category: overlay
     enabled: true
-    style: { team: both, color: "#A9A9A9", line_width: 1.5, opacity: 0.6 }
+    style: { relation: shape_graph, team: both, color: "#A9A9A9", line_width: 1.5, opacity: 0.6 }
+
+  # Same renderer, different relation product — computed lazily on first enable.
+  - name: proximity
+    display_name: Proximity (< 12 m)
+    type: EdgeSetOverlay
+    z_order: 25
+    category: overlay
+    enabled: false
+    style: { relation: proximity, team: both, color: "#67e8f9", line_width: 1.0, opacity: 0.35 }
 
   - name: team_glyphs
     display_name: Players

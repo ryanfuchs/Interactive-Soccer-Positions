@@ -11,9 +11,9 @@ DFL XML triplet                     (02_01 metadata, 03_02 events, 04_03 trackin
       │  io/ingest.py
       ▼
 MatchState                          (T, N, 5) arrays + events + metadata
-      │  bundle/builder.py          shape graphs + tactical roles (strided)
+      │  bundle/builder.py          registered producers → named products (strided)
       ▼
-PrecomputedBundle                   immutable, O(1) per-frame lookups, disk-cached
+PrecomputedBundle                   products map, O(1) per-frame lookups, disk-cached
       │  render/*                   YAML preset → element stacks
       ▼
 SceneRenderer / TimelineStack       pitch layers / timeline layers
@@ -105,8 +105,15 @@ fixed here once — all analytics and rendering assume corner-origin metres.
 ## 2. Analytics (`sopovis/analytics`, `sopovis/bundle`)
 
 Analytics run once per match, over a **strided subsample** of frames
-("analytics frames", default stride 5 → 5 Hz). `BundleBuilder`
-orchestrates two passes:
+("analytics frames", default stride 5 → 5 Hz). Each analytic is a
+**producer** (`analytics/producers.py`) registered by name, mirroring the
+element registry on the render side: a producer declares its `name`,
+`version`, dependencies (`requires`) and tunables (`params`), and turns the
+`MatchState` into one named **product**. `BundleBuilder` computes the core
+products (`attack_directions`, `shape_graph`, `roles`) eagerly; any other
+registered product (e.g. `proximity`) is computed on first
+`bundle.product(name)` access — enabling a layer triggers exactly the
+analytics it needs, once. The built-in producers:
 
 ### 2.1 Shape graphs (`shape_graph.py`)
 
@@ -162,15 +169,25 @@ mean position in the first ~100 s (`infer_attack_directions`).
 
 ### 2.4 Bundle + cache (`bundle/`)
 
-Everything lands in `PrecomputedBundle`, an immutable container in which
-every render-time query is O(1) (`positions(t)`, `roles_at(t)`,
-`shape_edges_at(t, team)`, `clock_label(t)`). Only the analytics outputs
-are pickled to `.cache/` (~100 MB instead of ~400 MB); pass-through arrays
-are rebuilt from `MatchState` on load. The cache key hashes match id,
-frame/player counts, stride and a cache version.
+Everything lands in `PrecomputedBundle`: pass-through arrays plus a
+`products` map (name → producer output) in which every render-time query
+is O(1) (`positions(t)`, `roles_at(t)`, `edges_at(t, relation, team)`,
+`clock_label(t)`). A `ProductSupplier` attached to the bundle computes
+missing products on first access, resolving producer dependencies
+recursively. The cache (`ProductCache`) writes **one pickle per product**
+(`.cache/{match}.{product}.pkl`), each keyed by source hash, stride and
+the producer's version + params — so adding or re-versioning one analytic
+never invalidates the others. Pass-through arrays are never cached; they
+are rebuilt from `MatchState` (~100 MB cached instead of ~400 MB).
 
 ### Questions you may be asked
 
+- *How do I add a new analytic (pitch control, passing options, …)?*
+  Subclass `Producer` (name, version, optional `requires`/`params`),
+  implement `compute()`, register it in `default_producer_registry()`.
+  Nothing else changes: the bundle, cache and views are generic over
+  products. `ProximityEdgesProducer` exists as a worked example — plus one
+  preset line it becomes a pitch overlay with zero render-code changes.
 - *Why precompute instead of computing on scrub?*
   The UI contract is "any frame in O(1)". Shape graphs take milliseconds
   per frame — fine once, but not at 25 fps scrubbing, and the role model
@@ -230,6 +247,12 @@ An element is described by `LayerSpec` (name, type, z-order, enabled,
 style dict). The registry maps `type` to a `from_spec` factory; adding an
 overlay means: implement the element, register it, add a YAML entry. No
 view code changes.
+
+Relation *data* and relation *rendering* are separate concerns:
+`EdgeSetOverlay` draws any edge-valued product named by its `relation`
+style key (`shape_graph`, `proximity`, later passing options), so a new
+relation is pure analytics and an alternative representation of an
+existing relation is pure config.
 
 - **Pitch elements** split into `StaticElement` (built once — pitch
   markings, half-space lines) and `DynamicElement` (update artist data in

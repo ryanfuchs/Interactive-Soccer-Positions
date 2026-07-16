@@ -41,7 +41,7 @@ def default_registry() -> ElementRegistry:
     for cls in (
         pitch.PitchMarkings,
         pitch.HalfSpaceLines,
-        pitch.ShapeGraphOverlay,
+        pitch.EdgeSetOverlay,
         pitch.TeamColorGlyph,
         pitch.ShirtNumberLabel,
         pitch.BallGlyph,

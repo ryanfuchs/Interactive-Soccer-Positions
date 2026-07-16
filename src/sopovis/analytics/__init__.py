@@ -1,7 +1,7 @@
-from sopovis.analytics.pipeline import (
-    ShapeGraphBuilder,
-    TacticalPositionInferer,
-    shape_graph_main,
+from sopovis.analytics.producers import (
+    Producer,
+    ProducerRegistry,
+    default_producer_registry,
 )
 from sopovis.analytics.roles import (
     ROLE_COLORS_X,
@@ -11,11 +11,11 @@ from sopovis.analytics.roles import (
 )
 
 __all__ = [
+    "Producer",
+    "ProducerRegistry",
     "ROLE_COLORS_X",
     "ROLE_COLORS_Y",
     "ROLE_NAMES",
-    "ShapeGraphBuilder",
-    "TacticalPositionInferer",
+    "default_producer_registry",
     "role_label",
-    "shape_graph_main",
 ]

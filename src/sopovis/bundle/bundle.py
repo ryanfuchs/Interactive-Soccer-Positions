@@ -1,5 +1,11 @@
 """PrecomputedBundle — immutable data container for render-time O(1) lookups.
 
+Analytics live in ``products``, a name → value map filled by registered
+producers (``analytics.producers``). Core products are computed eagerly at
+build time; anything else is computed (and disk-cached) on first access via
+``product(name)`` — enabling a layer therefore triggers exactly the analytics
+it needs, once.
+
 Analytics are computed on a strided subsample of frames ("analytics frames").
 `to_analytics_frame(t)` maps a tracking frame index to the nearest analytics
 frame. Shape graphs are stored as compact per-frame edge arrays (player column
@@ -8,6 +14,7 @@ pairs); `shape_graph_nx()` materialises a networkx.Graph on demand.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -33,18 +40,54 @@ class PrecomputedBundle:
 
     # analytics (strided subsample)
     analytics_stride: int
-    analytics_frame_indices: np.ndarray  # (Ta,)
-    shape_edges: dict[str, list[np.ndarray]]  # team_id → per-Ta (E, 2) column pairs
-    tactical_roles: np.ndarray  # (Ta, N, 2) int8
-    role_counts: np.ndarray  # (Ta, N, 25) int32 cumulative
-    player_row_order: dict[str, int]  # person_id → heatmap row (per team)
-    substitution_frames: list[int]  # analytics frame indices
-    attack_directions: dict[tuple[str, str], bool]  # (team_id, section) → +x
+    products: dict[str, Any] = field(default_factory=dict)
+    #: Computes missing products on demand (None → products is exhaustive).
+    supplier: Any = field(default=None, repr=False, compare=False)
 
     player_index: dict[str, int] = field(init=False)
+    analytics_frame_indices: np.ndarray = field(init=False)  # (Ta,)
 
     def __post_init__(self) -> None:
         self.player_index = {pid: i for i, pid in enumerate(self.player_ids)}
+        self.analytics_frame_indices = np.arange(
+            0, self.total_frames, self.analytics_stride
+        )
+
+    # -------------------------------------------------------------- products
+
+    def product(self, name: str) -> Any:
+        """Analytics product by name; computed lazily (and cached) if absent."""
+        if name not in self.products:
+            if self.supplier is None:
+                raise KeyError(f"product {name!r} not computed and no supplier set")
+            self.products[name] = self.supplier.get(name, self.products)
+        return self.products[name]
+
+    # typed views onto core products (kept for convenience and old call sites)
+
+    @property
+    def shape_edges(self) -> dict[str, list[np.ndarray]]:
+        return self.product("shape_graph")
+
+    @property
+    def tactical_roles(self) -> np.ndarray:  # (Ta, N, 2) int8
+        return self.product("roles").tactical_roles
+
+    @property
+    def role_counts(self) -> np.ndarray:  # (Ta, N, 25) int32 cumulative
+        return self.product("roles").role_counts
+
+    @property
+    def player_row_order(self) -> dict[str, int]:
+        return self.product("roles").player_row_order
+
+    @property
+    def substitution_frames(self) -> list[int]:
+        return self.product("roles").substitution_frames
+
+    @property
+    def attack_directions(self) -> dict[tuple[str, str], bool]:
+        return self.product("attack_directions")
 
     # ------------------------------------------------------------------ time
 
@@ -77,8 +120,12 @@ class PrecomputedBundle:
     def roles_at(self, t: int) -> np.ndarray:
         return self.tactical_roles[self.to_analytics_frame(t)]  # (N, 2)
 
+    def edges_at(self, t: int, relation: str, team_id: str) -> np.ndarray:
+        """(E, 2) edges of any edge-valued product ("relation") at frame t."""
+        return self.product(relation)[team_id][self.to_analytics_frame(t)]
+
     def shape_edges_at(self, t: int, team_id: str) -> np.ndarray:
-        return self.shape_edges[team_id][self.to_analytics_frame(t)]  # (E, 2)
+        return self.edges_at(t, "shape_graph", team_id)  # (E, 2)
 
     def shape_graph_nx(self, t: int, team_id: str):
         import networkx as nx
