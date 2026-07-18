@@ -38,8 +38,8 @@ class PitchMarkings(StaticElement):
         before = set(ax.get_children())
         pitch = VerticalPitch(
             pitch_type="custom",
-            pitch_length=bundle.meta.pitch_x,
-            pitch_width=bundle.meta.pitch_y,
+            pitch_length=bundle.meta.pitch_length,
+            pitch_width=bundle.meta.pitch_width,
             pitch_color=self.grass_color,
             line_color=self.line_color,
             linewidth=1.2,
@@ -51,7 +51,7 @@ class PitchMarkings(StaticElement):
             if self.line_color.lower() in {"#fff", "#ffffff", "white"}
             else self.line_color
         )
-        x0 = (bundle.meta.pitch_y - self.goal_width) / 2.0
+        x0 = (bundle.meta.pitch_width - self.goal_width) / 2.0
         bottom_goal = Rectangle(
             (x0, -self.goal_depth),
             self.goal_width,
@@ -62,7 +62,7 @@ class PitchMarkings(StaticElement):
             clip_on=False,
         )
         top_goal = Rectangle(
-            (x0, bundle.meta.pitch_x),
+            (x0, bundle.meta.pitch_length),
             self.goal_width,
             self.goal_depth,
             fill=False,

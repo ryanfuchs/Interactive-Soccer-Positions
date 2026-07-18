@@ -20,6 +20,7 @@ class IngestionController:
             files.metadata,
             section_ranges=track.section_ranges,
             frame_rate=track.frame_rate,
+            pitch_length=meta_info.meta.pitch_length,
         )
         return MatchState.from_parts(meta_info, events, track)
 

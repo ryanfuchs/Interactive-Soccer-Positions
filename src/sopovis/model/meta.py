@@ -52,8 +52,8 @@ class MatchMeta:
     guest_team_name: str
     kickoff_time: datetime | None
     result: str
-    pitch_x: float
-    pitch_y: float
+    pitch_length: float  # goal line to goal line, metres (DFL PitchX)
+    pitch_width: float  # touchline to touchline, metres (DFL PitchY)
     stadium_name: str
     total_time_first_half: int  # milliseconds
     total_time_second_half: int

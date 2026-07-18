@@ -37,11 +37,11 @@ class DefensiveLineOverlay(DynamicElement):
                 c for c in bundle.team_columns(tid)
                 if not bundle.player_registry[bundle.player_ids[c]].is_goalkeeper
             ]
-            xs = bundle.frames[t, cols, 0]
-            xs = xs[np.isfinite(xs)]
-            if len(xs) == 0:
+            ys = bundle.frames[t, cols, 1]
+            ys = ys[np.isfinite(ys)]
+            if len(ys) == 0:
                 continue
-            attacking_pos_x = bundle.attack_directions.get((tid, section), True)
-            height = xs.min() if attacking_pos_x else xs.max()
-            # VerticalPitch display y = tracking x (depth).
+            attacking_pos_y = bundle.attack_directions.get((tid, section), True)
+            height = ys.min() if attacking_pos_y else ys.max()
+            # Display y = goal-aligned longitudinal coordinate (depth).
             self._lines[tid].set_ydata([height, height])

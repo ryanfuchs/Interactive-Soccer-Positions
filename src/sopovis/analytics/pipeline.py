@@ -41,13 +41,13 @@ def frame_shape_edges(points: np.ndarray, columns: list[int]) -> np.ndarray:
     )
 
 
-def frame_roles(points: np.ndarray, attacking_positive_x: bool) -> np.ndarray:
+def frame_roles(points: np.ndarray, attacking_positive_y: bool) -> np.ndarray:
     """``(K, 2)`` tactical roles per point; all-UNSET when inference fails."""
     k = len(points)
     if k < 2 or not np.isfinite(points).all():
         return np.full((k, 2), UNSET, dtype=np.int8)
     try:
-        return compute_roles(points, attacking_positive_x)
+        return compute_roles(points, attacking_positive_y)
     except (ZeroDivisionError, ValueError, FloatingPointError):
         return np.full((k, 2), UNSET, dtype=np.int8)
 
@@ -56,7 +56,12 @@ def frame_roles(points: np.ndarray, attacking_positive_x: bool) -> np.ndarray:
 
 
 def infer_attack_directions(state: MatchState) -> dict[tuple[str, str], bool]:
-    """(team_id, section) → attacking toward +x, inferred from GK mean position."""
+    """(team_id, section) → attacking toward +y, inferred from GK mean position.
+
+    The longitudinal coordinate y runs from the reference goal line; a team
+    whose goalkeeper sits below midfield defends the reference goal and
+    attacks toward +y.
+    """
     directions: dict[tuple[str, str], bool] = {}
     gk_cols: dict[str, list[int]] = {}
     for team_id in (state.meta.home_team_id, state.meta.guest_team_id):
@@ -67,14 +72,16 @@ def infer_attack_directions(state: MatchState) -> dict[tuple[str, str], bool]:
         ]
 
     for section, (lo, hi) in state.section_ranges.items():
-        window = state.frames[lo : min(lo + 2500, hi), :, 0]  # first ~100 s
+        window = state.frames[lo : min(lo + 2500, hi), :, 1]  # first ~100 s
         for team_id, cols in gk_cols.items():
-            gk_x = window[:, cols]
-            mean_x = np.nanmean(gk_x) if np.isfinite(gk_x).any() else None
-            if mean_x is None:  # fallback: whole-team mean
+            gk_y = window[:, cols]
+            mean_y = np.nanmean(gk_y) if np.isfinite(gk_y).any() else None
+            if mean_y is None:  # fallback: whole-team mean
                 team_cols = state.team_columns(team_id)
-                mean_x = np.nanmean(window[:, team_cols])
-            directions[(team_id, section)] = bool(mean_x < state.meta.pitch_x / 2)
+                mean_y = np.nanmean(window[:, team_cols])
+            directions[(team_id, section)] = bool(
+                mean_y < state.meta.pitch_length / 2
+            )
     return directions
 
 

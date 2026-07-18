@@ -3,6 +3,9 @@
 floodlight returns per-segment, per-team Events dataframes with a `gameclock`
 (seconds from segment start). Frame alignment: frame_idx = section_start +
 round(gameclock * frame_rate), clamped to the section range.
+
+Event locations are mapped into the same goal-aligned frame as tracking
+(x lateral and signed, y longitudinal from the reference goal line).
 """
 from __future__ import annotations
 
@@ -19,6 +22,7 @@ class EventLoader:
         mat_info_path: str | Path,
         section_ranges: dict[str, tuple[int, int]],
         frame_rate: float = 25.0,
+        pitch_length: float = 105.0,
     ) -> list[EventMoment]:
         from floodlight.io.dfl import read_event_data_xml
 
@@ -39,8 +43,10 @@ class EventLoader:
                         continue
                     frame_idx = lo + int(round(float(gameclock) * frame_rate))
                     frame_idx = max(lo, min(frame_idx, hi - 1))
-                    at_x = getattr(row, "at_x", None)
-                    at_y = getattr(row, "at_y", None)
+                    # provider frame: at_x along length (center-origin),
+                    # at_y lateral → goal-aligned: x = at_y, y = at_x + L/2
+                    at_x = _float_or_none(getattr(row, "at_x", None))
+                    at_y = _float_or_none(getattr(row, "at_y", None))
                     qualifier = getattr(row, "qualifier", None)
                     moments.append(
                         EventMoment(
@@ -48,8 +54,8 @@ class EventLoader:
                             event_type=str(row.eID),
                             player_id=_none_if_nan(getattr(row, "pID", None)),
                             team_id=_none_if_nan(getattr(row, "tID", None)),
-                            x=_float_or_none(at_x),
-                            y=_float_or_none(at_y),
+                            x=at_y,
+                            y=(at_x + pitch_length / 2.0) if at_x is not None else None,
                             section=section,
                             raw=dict(qualifier) if isinstance(qualifier, dict) else {},
                         )

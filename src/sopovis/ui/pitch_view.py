@@ -89,13 +89,13 @@ class PitchAnimationView:
 
     def _apply_orientation(self) -> None:
         """Keep VerticalPitch data coords; flip ends via axis limits when needed."""
-        px, py = self.bundle.meta.pitch_x, self.bundle.meta.pitch_y
+        length, width = self.bundle.meta.pitch_length, self.bundle.meta.pitch_width
         if self.home_at_bottom:
-            self.ax.set_xlim(0, py)
-            self.ax.set_ylim(0, px)
+            self.ax.set_xlim(0, width)
+            self.ax.set_ylim(0, length)
         else:
-            self.ax.set_xlim(py, 0)
-            self.ax.set_ylim(px, 0)
+            self.ax.set_xlim(width, 0)
+            self.ax.set_ylim(length, 0)
 
     def _on_motion(self, event) -> None:
         if self._hover is None:

@@ -6,9 +6,10 @@ Roles are discrete coordinates on a 5×5 grid:
 UNSET (−3) marks players that received no role (absent from the frame).
 
 Assignment uses recursive barycenter splits of the shape graph
-(``frame_to_position_plot``). Pitch coordinates use x along the pitch length
-and y up. For a team attacking toward +x, the most advanced players (max x)
-are Forwards. ``attacking_positive_x=False`` flips both axes.
+(``frame_to_position_plot``). Pitch coordinates are goal-aligned: x is the
+signed lateral offset and y runs goal line to goal line. For a team attacking
+toward +y, the most advanced players (max y) are Forwards and lower x is
+Left; ``attacking_positive_y=False`` mirrors both.
 """
 from __future__ import annotations
 
@@ -244,24 +245,26 @@ def frame_to_position_plot(frame: dict) -> dict:
 
 def compute_roles(
     points: np.ndarray,
-    attacking_positive_x: bool,
+    attacking_positive_y: bool,
 ) -> np.ndarray:
     """Assign ``(x_role, y_role)`` per point via position-plot splits.
 
     Parameters
     ----------
     points :
-        ``(K, 2)`` outfield positions in pitch metres.
-    attacking_positive_x :
-        If False, flip both axes so Forward/Left map correctly when attacking
-        toward −x.
+        ``(K, 2)`` outfield positions in goal-aligned pitch metres
+        (lateral x, longitudinal y).
+    attacking_positive_y :
+        Whether the team attacks toward +y; controls which end is Forward
+        and which side is Left.
 
     Returns
     -------
     np.ndarray
         ``(K, 2)`` int8 roles. ``frame_to_position_plot`` returns
-        ``(h, v)`` = (pitch-x split, pitch-y split); stored as
-        ``(x_role, y_role)`` with optional negation for attack direction.
+        ``(h, v)`` = (lateral split, longitudinal split); depth comes from
+        the longitudinal split and lateral from the lateral split, with
+        signs fixed by the attack direction.
     """
     k = len(points)
     if k == 0:
@@ -273,13 +276,15 @@ def compute_roles(
     roles = np.zeros((k, 2), dtype=np.int8)
     for i in range(k):
         h, v = pos[i]
-        # Higher pitch-x/y → positive h/v. Our grid uses −2 = Forward/Left
-        # when attacking toward +x, so negate in that case.
-        x_role = int(np.clip(h, -2, 2))
-        y_role = int(np.clip(v, -2, 2))
-        if attacking_positive_x:
-            x_role = -x_role
-            y_role = -y_role
-        roles[i, 0] = x_role
-        roles[i, 1] = y_role
+        lat_role = int(np.clip(h, -2, 2))
+        lon_role = int(np.clip(v, -2, 2))
+        # Grid: −2 = Forward on depth, −2 = Left laterally.
+        # Attacking +y: max y is Forward (negate lon); Left is −x (keep lat).
+        # Attacking −y: min y is Forward (keep lon); Left is +x (negate lat).
+        if attacking_positive_y:
+            roles[i, 0] = -lon_role
+            roles[i, 1] = lat_role
+        else:
+            roles[i, 0] = lon_role
+            roles[i, 1] = -lat_role
     return roles

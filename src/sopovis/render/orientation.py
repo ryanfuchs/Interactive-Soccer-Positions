@@ -1,12 +1,16 @@
 """Vertical pitch display orientation.
 
-Tracking data stays corner-origin metres: ``x`` along length, ``y`` along width.
-The UI draws a vertical pitch via mplsoccer ``VerticalPitch``, which plots
-``(display_x, display_y) = (y, x)`` so length runs bottom→top on screen.
+Tracking data is goal-aligned metres: ``x`` is the signed lateral offset from
+the axis through the goal centers, ``y`` the longitudinal distance from the
+reference goal line. The UI draws a vertical pitch via mplsoccer
+``VerticalPitch``, whose data space is non-negative — ``[0, width]``
+horizontally and ``[0, length]`` vertically with the goals at the bottom and
+top. Display therefore only shifts the lateral axis by half the pitch width:
+``(display_x, display_y) = (x + width/2, y)``.
 
 ``home_at_bottom`` controls which end is at the bottom of the figure:
-- True  (default): home attacks upward when attacking +x in first half
-- False: pitch is flipped 180° so the opposite team sits at the bottom
+- True  (default): the reference goal (y = 0) sits at the bottom
+- False: pitch is flipped 180° so the opposite end sits at the bottom
 """
 from __future__ import annotations
 
@@ -22,9 +26,10 @@ def to_display_xy(
     home_at_bottom: bool = True,
 ) -> tuple[float | np.ndarray, float | np.ndarray]:
     """Map tracking (x, y) → VerticalPitch plot coordinates."""
+    half_w = bundle.meta.pitch_width / 2.0
     if home_at_bottom:
-        return y, x
-    return bundle.meta.pitch_y - y, bundle.meta.pitch_x - x
+        return x + half_w, y
+    return half_w - x, bundle.meta.pitch_length - y
 
 
 def to_display_points(
@@ -47,9 +52,10 @@ def to_tracking_xy(
     home_at_bottom: bool = True,
 ) -> tuple[float, float]:
     """Inverse of ``to_display_xy`` for hit-testing."""
+    half_w = bundle.meta.pitch_width / 2.0
     if home_at_bottom:
-        return display_y, display_x
-    return bundle.meta.pitch_x - display_y, bundle.meta.pitch_y - display_x
+        return display_x - half_w, display_y
+    return half_w - display_x, bundle.meta.pitch_length - display_y
 
 
 def to_display_delta(
@@ -59,5 +65,5 @@ def to_display_delta(
 ) -> tuple[float | np.ndarray, float | np.ndarray]:
     """Map a tracking-space displacement into display space."""
     if home_at_bottom:
-        return dy, dx
-    return -dy, -dx
+        return dx, dy
+    return -dx, -dy

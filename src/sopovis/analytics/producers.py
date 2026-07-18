@@ -98,9 +98,10 @@ def iter_team_frames(
 
 
 class AttackDirectionsProducer(Producer):
-    """(team_id, section) → attacking toward +x."""
+    """(team_id, section) → attacking toward +y (away from the reference goal)."""
 
     name = "attack_directions"
+    version = 2  # v2: goal-aligned coordinate frame
 
     def compute(self, state, deps, stride, progress=False):
         return infer_attack_directions(state)
@@ -110,6 +111,7 @@ class ShapeGraphProducer(Producer):
     """team_id → per-analytics-frame (E, 2) edge arrays (tactical adjacency)."""
 
     name = "shape_graph"
+    version = 2  # v2: goal-aligned coordinate frame
 
     def compute(self, state, deps, stride, progress=False):
         edges: dict[str, list[np.ndarray]] = {}
@@ -129,6 +131,7 @@ class RolesProducer(Producer):
     """Tactical roles per analytics frame + temporal aggregation (RoleResult)."""
 
     name = "roles"
+    version = 2  # v2: goal-aligned coordinate frame
     requires = ("attack_directions",)
 
     def compute(self, state, deps, stride, progress=False) -> RoleResult:
@@ -162,6 +165,7 @@ class ProximityEdgesProducer(Producer):
     """
 
     name = "proximity"
+    version = 2  # v2: goal-aligned coordinate frame
     params = {"max_distance_m": 12.0}
 
     def compute(self, state, deps, stride, progress=False):

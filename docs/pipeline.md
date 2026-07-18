@@ -49,8 +49,10 @@ loader:
 2. concatenates the game sections (`firstHalf`, `secondHalf`, extra time,
    …) along the time axis, recording `section_ranges` as
    `(start, end_exclusive)` frame intervals,
-3. shifts coordinates to *corner-origin*: `x ∈ [0, pitch_x]`,
-   `y ∈ [0, pitch_y]`, `(0, 0)` bottom-left,
+3. maps coordinates into the *goal-aligned* frame (Brandes 2023): the
+   longitudinal axis runs through the two goal centers, `x` is the signed
+   lateral offset from it (`x ∈ [−width/2, width/2]`) and `y` the
+   longitudinal distance from the reference goal line (`y ∈ [0, length]`),
 4. derives speed, acceleration and cumulative distance numerically from
    position deltas (floodlight discards the S/A/D attributes present in the
    raw feed). Kinematics are computed **per section** so the half-time
@@ -71,7 +73,7 @@ qualifier dict preserved for tooltips.
 **`MatchState`** (`model/state.py`) is the single time-indexed store that
 everything downstream reads: arrays, `player_registry`, `event_index`
 (frame → events), `section_ranges`, metadata. The coordinate convention is
-fixed here once — all analytics and rendering assume corner-origin metres.
+fixed here once — all analytics and rendering assume goal-aligned metres.
 
 ### Questions you may be asked
 
@@ -86,11 +88,16 @@ fixed here once — all analytics and rendering assume corner-origin metres.
   trivial (one integer). Section semantics are recoverable through
   `section_ranges`, and everything that needs section awareness (clock
   labels, kinematics, attack directions) consults it explicitly.
-- *Why corner-origin coordinates?*
-  Rendering (mplsoccer's `VerticalPitch`) and role inference both want
-  non-negative pitch coordinates; converting once at the boundary is safer
-  than remembering the convention at every use site (a classic
-  parse-don't-validate argument).
+- *Why goal-aligned coordinates?*
+  The goals are the fixed reference points of the game even when pitch
+  dimensions vary (Brandes 2023, "A goal-aligned coordinate system for
+  invasion games"): `y` reads directly as "metres from the goal line" and
+  `x = 0` is the goal-to-goal axis, so spatial predicates ("inside the
+  width of the box", "20 m out") are interpretable without knowing the
+  pitch size. Converting once at the boundary is safer than remembering
+  the convention at every use site (a classic parse-don't-validate
+  argument); the display layer shifts the lateral axis by half the width
+  for mplsoccer's non-negative plot space.
 - *Why derive kinematics numerically rather than trusting the feed?*
   floodlight discards the feed's S/A/D attributes, so they are simply not
   available post-parse; deriving them from positions keeps a single source
@@ -148,10 +155,11 @@ Assignment (`frame_to_position_plot`) splits the team recursively:
 4. Recurse twice per axis → values in `[−2, 2]`.
 
 The split is *relative to team shape*, not absolute pitch position: a high
-defensive line's center backs are still "Back". `attacking_positive_x`
-flips both axes so "Forward" always means toward the opponent goal; the
-direction itself is inferred per team per section from the goalkeeper's
-mean position in the first ~100 s (`infer_attack_directions`).
+defensive line's center backs are still "Back". `attacking_positive_y`
+orients the grid so "Forward" always means toward the opponent goal and
+"Left" is the team's own left; the direction itself is inferred per team
+per section from the goalkeeper's mean longitudinal position in the first
+~100 s (`infer_attack_directions`).
 
 ### 2.3 Temporal aggregation (`pipeline.py`)
 
@@ -218,7 +226,7 @@ are rebuilt from `MatchState` (~100 MB cached instead of ~400 MB).
   O(1) without recomputing — the prefix-sum trick.
 - *How do you validate the inferred attack direction?*
   The goalkeeper is a near-invariant anchor: he stays in his own half
-  essentially always, so his mean x over the first 100 s of a section
+  essentially always, so his mean longitudinal position over the first 100 s of a section
   identifies the defended goal with very high reliability; a whole-team
   fallback covers missing GK tracking.
 - *Limitations?*

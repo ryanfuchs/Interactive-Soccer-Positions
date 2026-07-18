@@ -20,9 +20,9 @@ class HalfSpaceLines(StaticElement):
         return cls(meta_from_spec(spec), **spec.style)
 
     def _build(self, ax, bundle: PrecomputedBundle) -> None:
-        width = bundle.meta.pitch_y
+        width = bundle.meta.pitch_width
         for frac in (0.211, 0.368, 0.632, 0.789):
-            # VerticalPitch plots (y, x); lateral position is the horizontal axis.
+            # Lateral position is the horizontal display axis, [0, width].
             line = ax.axvline(
                 width * frac,
                 color=self.color,

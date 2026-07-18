@@ -31,8 +31,8 @@ class EventMoment:
     event_type: str  # e.g. "KickOff", "SuccessfulShot", "Play_Pass"
     player_id: str | None
     team_id: str | None
-    x: float | None
-    y: float | None
+    x: float | None  # goal-aligned lateral (signed), see model.state
+    y: float | None  # goal-aligned longitudinal from reference goal line
     section: str  # see model.sections.SECTION_ORDER
     raw: dict = field(default_factory=dict, compare=False)
 

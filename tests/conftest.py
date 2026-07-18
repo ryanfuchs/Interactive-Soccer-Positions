@@ -57,8 +57,8 @@ def synthetic_state() -> MatchState:
         guest_team_name=away.team_name,
         kickoff_time=None,
         result="1:0",
-        pitch_x=105.0,
-        pitch_y=68.0,
+        pitch_length=105.0,
+        pitch_width=68.0,
         stadium_name="Test Arena",
         total_time_first_half=60_000,
         total_time_second_half=60_000,
@@ -77,23 +77,24 @@ def synthetic_state() -> MatchState:
 
     frames = np.full((t_total, n, 5), np.nan)
     # starters follow a smooth random walk around formation anchors
+    # (goal-aligned frame: x lateral and signed, y from the reference goal line)
     for team_idx, team in enumerate((home, away)):
         base_col = team_idx * len(home.players)
-        anchor_x = 30.0 if team_idx == 0 else 75.0
+        anchor_y = 30.0 if team_idx == 0 else 75.0
         for i in range(11):
             col = base_col + i
-            ax = 8.0 if i == 0 else anchor_x + rng.uniform(-18, 18)
-            ay = rng.uniform(8, 60)
+            ay = 8.0 if i == 0 else anchor_y + rng.uniform(-18, 18)
+            ax = rng.uniform(-26, 26)
             if team_idx == 1 and i == 0:
-                ax = 97.0
+                ay = 97.0
             walk = rng.normal(0, 0.06, size=(t_total, 2)).cumsum(axis=0)
-            frames[:, col, 0] = np.clip(ax + walk[:, 0], 1, 104)
-            frames[:, col, 1] = np.clip(ay + walk[:, 1], 1, 67)
+            frames[:, col, 0] = np.clip(ax + walk[:, 0], -33, 33)
+            frames[:, col, 1] = np.clip(ay + walk[:, 1], 1, 104)
     frames[:, :, 2:] = 0.0
 
     ball = np.zeros((t_total, 4))
-    ball[:, 0] = 52.5 + rng.normal(0, 10, t_total).cumsum() * 0.01
-    ball[:, 1] = 34.0
+    ball[:, 0] = rng.normal(0, 10, t_total).cumsum() * 0.01
+    ball[:, 1] = 52.5
     ball[:, 3] = 1.0
 
     track = TrackingData(
@@ -106,9 +107,9 @@ def synthetic_state() -> MatchState:
     )
 
     events = [
-        EventMoment(0, "KickOff_Play_Pass", player_ids[5], home.team_id, 52.5, 34.0, "firstHalf"),
-        EventMoment(700, "ShotAtGoal_SuccessfulShot", player_ids[9], home.team_id, 95.0, 30.0, "firstHalf"),
-        EventMoment(900, "Caution", player_ids[20], away.team_id, 50.0, 20.0, "firstHalf"),
+        EventMoment(0, "KickOff_Play_Pass", player_ids[5], home.team_id, 0.0, 52.5, "firstHalf"),
+        EventMoment(700, "ShotAtGoal_SuccessfulShot", player_ids[9], home.team_id, -4.0, 95.0, "firstHalf"),
+        EventMoment(900, "Caution", player_ids[20], away.team_id, -14.0, 50.0, "firstHalf"),
         EventMoment(t_half - 1, "FinalWhistle", None, None, None, None, "firstHalf"),
         EventMoment(t_total - 1, "FinalWhistle", None, None, None, None, "secondHalf"),
     ]

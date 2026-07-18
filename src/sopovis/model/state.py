@@ -1,8 +1,12 @@
 """MatchState — single time-indexed store.
 
-Coordinate convention: corner-origin pitch metres — x ∈ [0, pitch_x],
-y ∈ [0, pitch_y], (0, 0) bottom-left. All downstream components (analytics,
-rendering) use this frame.
+Coordinate convention: goal-aligned pitch metres (Brandes 2023) — the
+longitudinal axis runs through the two goal centers. x is the signed lateral
+distance from that axis, x ∈ [−pitch_width/2, pitch_width/2]; y is the
+longitudinal distance from the reference goal line, y ∈ [0, pitch_length].
+The reference goal is one fixed physical end of the pitch for the whole
+match; which team defends it per section is given by the inferred attack
+directions. All downstream components (analytics, rendering) use this frame.
 """
 from __future__ import annotations
 
