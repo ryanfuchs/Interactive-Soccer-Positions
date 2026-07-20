@@ -23,6 +23,7 @@ from sopovis.render.position.geometry import (
     TEAM_GAP_ROWS,
 )
 from sopovis.render.position.layers import (
+    RedzonePresence,
     RoleHeatmap,
     SectionBoundaries,
     SubstitutionMarkers,
@@ -47,6 +48,7 @@ __all__ = [
     "POSSESSION_AWAY",
     "POSSESSION_CONTESTED",
     "POSSESSION_HOME",
+    "RedzonePresence",
     "RoleHeatmap",
     "RowBand",
     "SectionBoundaries",

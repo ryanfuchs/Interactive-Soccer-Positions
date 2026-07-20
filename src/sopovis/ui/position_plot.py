@@ -78,7 +78,9 @@ class PositionPlotView:
         self._span_zoom = SpanZoomInteraction(
             self.ax,
             on_zoom=on_span_zoom or (lambda _a, _b: None),
-            on_click=self.request_seek,
+            # late binding: request_seek is assigned by AppController after
+            # construction, so it must be looked up per click, not captured now
+            on_click=lambda t: self.request_seek(t),
             on_reset=on_span_reset or (lambda: None),
             y_limits=(0.0, 1.0),
             min_span_frames=min_frames,

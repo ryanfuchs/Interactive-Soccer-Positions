@@ -25,17 +25,23 @@ def _make_desktop(synthetic_bundle):
 
 
 def test_desktop_play_advances_cursor(synthetic_bundle):
+    import time
+
     app = _make_desktop(synthetic_bundle)
 
     app._on_scrub(10)
     assert app.app.cursor.t == 10
-    assert app.app.pitch.ax.get_title().endswith(app.app.bundle.clock_label(10))
+    # single time indicator lives on the timeline, not the pitch title
+    assert app.app.bundle.clock_label(10) not in app.app.pitch.ax.get_title()
 
-    app._play_step = 5
+    # wall-clock playback: 0.2 s at 1× and 25 fps advances ~5 frames
     app._playing = True
+    app._speed_var.set("1×")
+    app._last_tick_time = time.monotonic() - 0.2
     app._play_tick()
-    assert app.app.cursor.t == 15
+    assert app.app.cursor.t == pytest.approx(15, abs=1)
 
+    app._playing = False
     app._on_close()
 
 
@@ -118,7 +124,6 @@ def test_desktop_speed_change(synthetic_bundle):
     app._speed_var.set("4×")
     app._on_speed_choice("4×")
     assert app.app.timeline.speed == 4.0
-    assert app._play_step == 8
 
     app._on_close()
 
@@ -204,7 +209,9 @@ def test_timeline_layers_and_tooltips(synthetic_bundle):
 
     names = [el.meta.name for el in timeline.elements]
     assert "shots" in names
-    assert "possession" in names
+    # possession chart was dropped from the shipped presets (2026-07-19);
+    # the PossessionChart element stays registered for custom presets
+    assert "possession" not in names
 
     # synthetic match has one goal → shots layer exposes a hover target
     shots = timeline.get("shots")

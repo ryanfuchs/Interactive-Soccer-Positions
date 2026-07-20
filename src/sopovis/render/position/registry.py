@@ -43,6 +43,7 @@ def default_position_registry() -> PositionElementRegistry:
         position.RoleHeatmap,
         position.SubstitutionMarkers,
         position.SectionBoundaries,
+        position.RedzonePresence,
     ):
         registry.register(cls.__name__, cls.from_spec)
     return registry

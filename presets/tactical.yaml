@@ -37,6 +37,16 @@ layers:
     enabled: false
     style: { relation: proximity, team: both, color: "#67e8f9", line_width: 1.0, opacity: 0.35 }
 
+  # Red zone (Tanner 2026) — space between the defensive and first midfield
+  # line; team: both | home | away | defending (only the team out of possession).
+  - name: redzone
+    display_name: Red zone
+    type: RedzoneOverlay
+    z_order: 28
+    category: overlay
+    enabled: false
+    style: { team: both, opacity: 0.25 }
+
   - name: team_glyphs
     display_name: Players
     type: TeamColorGlyph
@@ -69,13 +79,6 @@ layers:
 # Timeline overlays — band: full | home | away for area layers,
 # team: both | home | away to filter marker layers.
 timeline:
-  - name: possession
-    display_name: Possession
-    type: PossessionChart
-    z_order: 2
-    enabled: true
-    style: { window_seconds: 90, linewidth: 1.5, home_color: "#d00000", away_color: "#215CAF" }
-
   - name: lanes
     display_name: Lanes
     type: LaneFurniture
@@ -109,11 +112,25 @@ timeline:
     type: ShotMarkers
     z_order: 16
 
+  - name: redzone_area
+    display_name: Red zone size
+    type: RedzoneAreaChart
+    z_order: 3
+    enabled: false
+    style: { window_seconds: 5, opacity: 0.35 }
+
 position:
   - name: role_heatmap
     display_name: Role heatmap
     type: RoleHeatmap
     z_order: 10
+
+  # Builds after the heatmap (higher z_order) — reuses its row bands.
+  - name: redzone_presence
+    display_name: In opponent red zone
+    type: RedzonePresence
+    z_order: 15
+    enabled: false
     category: data
 
   - name: sections

@@ -9,7 +9,7 @@ from sopovis.bundle.bundle import PrecomputedBundle
 from sopovis.config.presets import LayerSpec
 from sopovis.render.common import meta_from_spec
 from sopovis.render.elements import ElementMeta
-from sopovis.render.position.context import PositionContext, RowBand
+from sopovis.render.position.context import PositionContext, TeamBlock
 from sopovis.render.position.elements import PositionElement
 from sopovis.render.position.geometry import (
     PLAYER_BAND,
@@ -19,7 +19,11 @@ from sopovis.render.position.geometry import (
 
 
 class RoleHeatmap(PositionElement):
-    """Stacked team blocks: upper strip = depth role, lower = lateral role."""
+    """Stacked team blocks: upper strip = depth role, lower = lateral role.
+
+    Row layout (blocks, bands, labels) comes precomputed from the context;
+    this element only fills in the role colors.
+    """
 
     def __init__(self, meta: ElementMeta):
         super().__init__(meta)
@@ -30,43 +34,13 @@ class RoleHeatmap(PositionElement):
 
     def build(self, ax, bundle: PrecomputedBundle, ctx: PositionContext) -> None:
         self.reset()
-        ctx.row_bands.clear()
-        ctx.yticks.clear()
-        ctx.ylabels.clear()
-
-        home, away = bundle.meta.home_team_id, bundle.meta.guest_team_id
-        blocks: list[tuple[str, bool, bool]] = []
-        if ctx.team_focus == "both":
-            if ctx.home_at_bottom:
-                blocks = [(away, True, False), (home, False, True)]
-            else:
-                blocks = [(home, True, False), (away, False, True)]
-        elif ctx.team_focus == "home":
-            blocks = [(home, not ctx.home_at_bottom, not ctx.home_at_bottom)]
-        else:
-            blocks = [(away, ctx.home_at_bottom, ctx.home_at_bottom)]
-
         n_bins = len(ctx.edges) - 1
         team_gap = np.ones((TEAM_GAP_ROWS * (PLAYER_BAND + PLAYER_GAP), n_bins, 3))
         parts: list[np.ndarray] = []
-        offset = 0.0
-        row_stride = PLAYER_BAND + PLAYER_GAP
-
-        for i, (tid, reverse_rows, mirror_lateral) in enumerate(blocks):
-            img, labels, band_cols = self._team_block(
-                bundle, ctx, tid, reverse_rows=reverse_rows, mirror_lateral=mirror_lateral
-            )
+        for i, block in enumerate(ctx.blocks):
             if i > 0:
                 parts.append(team_gap)
-                offset += team_gap.shape[0]
-            parts.append(img)
-            for r, (label, cols) in enumerate(zip(labels, band_cols)):
-                y0 = offset + r * row_stride
-                y1 = y0 + PLAYER_BAND
-                ctx.row_bands.append(RowBand(y0=y0, y1=y1, cols=cols))
-                ctx.yticks.append(y0 + PLAYER_BAND / 2.0)
-                ctx.ylabels.append(label)
-            offset += img.shape[0]
+            parts.append(self._team_image(bundle, ctx, block))
 
         stacked = np.concatenate(parts, axis=0) if parts else np.ones((1, n_bins, 3))
         im = ax.imshow(
@@ -79,39 +53,18 @@ class RoleHeatmap(PositionElement):
         self._register(im)
         ax.set_xlim(ctx.t0, ctx.t1)
 
-    def _team_block(
-        self,
-        bundle: PrecomputedBundle,
-        ctx: PositionContext,
-        team_id: str,
-        *,
-        reverse_rows: bool,
-        mirror_lateral: bool,
-    ) -> tuple[np.ndarray, list[str], list[list[int]]]:
+    def _team_image(
+        self, bundle: PrecomputedBundle, ctx: PositionContext, block: TeamBlock
+    ) -> np.ndarray:
         counts = bundle.role_counts
-        band_cols: list[list[int]] = []
-        labels: list[str] = []
-        row_map: dict[int, list[int]] = {}
-        for pid, row in bundle.player_row_order.items():
-            if bundle.team_map.get(pid) == team_id:
-                row_map.setdefault(row, []).append(bundle.player_index[pid])
-        row_keys = sorted(row_map)
-        if reverse_rows:
-            row_keys = list(reversed(row_keys))
-        for row in row_keys:
-            cols = row_map[row]
-            band_cols.append(cols)
-            shirts = [
-                str(bundle.player_registry[bundle.player_ids[c]].shirt_number)
-                for c in cols
-            ]
-            labels.append("/".join(shirts))
-
+        band_cols = block.band_cols
         n_rows, n_bins = len(band_cols), len(ctx.edges) - 1
         row_stride = PLAYER_BAND + PLAYER_GAP
         img_h = max(0, n_rows * row_stride - (PLAYER_GAP if n_rows else 0))
         img = np.ones((img_h, n_bins, 3))
-        y_colors = list(reversed(ROLE_COLORS_Y)) if mirror_lateral else ROLE_COLORS_Y
+        y_colors = (
+            list(reversed(ROLE_COLORS_Y)) if block.mirror_lateral else ROLE_COLORS_Y
+        )
         edges = ctx.edges
         for r, cols in enumerate(band_cols):
             sel = np.ix_(edges[1:], cols)
@@ -127,4 +80,4 @@ class RoleHeatmap(PositionElement):
                 x_role, y_role = best[b] // 5 - 2, best[b] % 5 - 2
                 img[base, b] = to_rgb(ROLE_COLORS_X[x_role + 2])
                 img[base + 1, b] = to_rgb(y_colors[y_role + 2])
-        return img, labels, band_cols
+        return img

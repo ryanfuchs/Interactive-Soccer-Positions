@@ -45,6 +45,7 @@ def default_timeline_registry() -> TimelineElementRegistry:
         timeline.SectionBoundaries,
         timeline.ShotMarkers,
         timeline.EventMarkers,
+        timeline.RedzoneAreaChart,
     ):
         registry.register(cls.__name__, cls.from_spec)
     return registry

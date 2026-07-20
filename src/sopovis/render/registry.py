@@ -47,6 +47,7 @@ def default_registry() -> ElementRegistry:
         pitch.BallGlyph,
         pitch.DefensiveLineOverlay,
         pitch.VelocityArrow,
+        pitch.RedzoneOverlay,
     ):
         registry.register(cls.__name__, cls.from_spec)
     return registry

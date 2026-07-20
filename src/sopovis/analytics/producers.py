@@ -187,6 +187,87 @@ class ProximityEdgesProducer(Producer):
         return edges
 
 
+class RedzoneProducer(Producer):
+    """Per-team red zone (Tanner 2026): NURBS control points, area, membership.
+
+    The red zone is the central space between a team's defensive line and its
+    first midfield line. Player selection and zone construction follow the
+    improved algorithms of the paper; roles come from the existing ``roles``
+    product. Computed for both teams on every analytics frame (the tactical
+    reading as "zone of the team out of possession" is left to the views).
+    """
+
+    name = "redzone"
+    version = 1
+    requires = ("attack_directions", "roles")
+    params = {"boundary_samples": 200}
+
+    def compute(self, state, deps, stride, progress=False):
+        from matplotlib.path import Path
+
+        from sopovis.analytics.redzone import (
+            RedzoneResult,
+            compute_redzone_frame,
+            evaluate_closed_nurbs,
+            polygon_area,
+        )
+
+        directions = deps["attack_directions"]
+        roles = deps["roles"].tactical_roles  # (Ta, N, 2)
+        samples = int(self.params["boundary_samples"])
+        ta_total = (state.total_frames + stride - 1) // stride
+        n = len(state.player_ids)
+
+        control_points: dict[str, list] = {}
+        weights: dict[str, list] = {}
+        areas: dict[str, np.ndarray] = {}
+        inside = np.zeros((ta_total, n), dtype=bool)
+
+        team_ids = (state.meta.home_team_id, state.meta.guest_team_id)
+        for tid in team_ids:
+            opponent_cols = np.asarray(
+                [c for c in range(n) if state.team_map.get(state.player_ids[c]) != tid],
+                dtype=np.int32,
+            )
+            ctrl_list: list = [None] * ta_total
+            w_list: list = [None] * ta_total
+            area = np.zeros(ta_total, dtype=np.float32)
+
+            iterator = iter_team_frames(state, stride, tid)
+            if progress:
+                iterator = _progress(iterator, ta_total)
+            for ta, t, points, columns in iterator:
+                if len(columns) < 4:
+                    continue
+                section = state.section_of(t)
+                zone = compute_redzone_frame(
+                    points, columns, roles[ta], directions[(tid, section)]
+                )
+                if zone is None:
+                    continue
+                ctrl, w = zone
+                ctrl_list[ta], w_list[ta] = ctrl, w
+                boundary = evaluate_closed_nurbs(ctrl, w, samples)
+                area[ta] = polygon_area(boundary)
+
+                opp_xy = state.frames[t, opponent_cols, :2]
+                present = np.isfinite(opp_xy).all(axis=1)
+                if present.any():
+                    hit = Path(boundary).contains_points(opp_xy[present])
+                    inside[ta, opponent_cols[present]] |= hit
+
+            control_points[tid] = ctrl_list
+            weights[tid] = w_list
+            areas[tid] = area
+
+        return RedzoneResult(
+            control_points=control_points,
+            weights=weights,
+            areas=areas,
+            inside_opponent=inside,
+        )
+
+
 def default_producer_registry() -> ProducerRegistry:
     registry = ProducerRegistry()
     for producer in (
@@ -194,6 +275,7 @@ def default_producer_registry() -> ProducerRegistry:
         ShapeGraphProducer(),
         RolesProducer(),
         ProximityEdgesProducer(),
+        RedzoneProducer(),
     ):
         registry.register(producer)
     return registry

@@ -50,13 +50,6 @@ layers:
     style: { color: "#ffffff", edge_color: "#000000" }
 
 timeline:
-  - name: possession
-    display_name: Possession
-    type: PossessionChart
-    z_order: 2
-    enabled: false
-    style: { window_seconds: 90, linewidth: 1.5, home_color: "#d00000", away_color: "#215CAF" }
-
   - name: lanes
     display_name: Lanes
     type: LaneFurniture

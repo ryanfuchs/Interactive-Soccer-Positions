@@ -8,6 +8,7 @@ control callbacks update the visible canvases (not a throwaway Agg canvas).
 from __future__ import annotations
 
 from pathlib import Path
+import time
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable
@@ -26,8 +27,11 @@ from sopovis.config.settings import (
 from sopovis.model.sections import SECTION_ORDER, section_display_name
 from sopovis.ui.app import AppController
 
-# Playback: step=2 every 80 ms ≈ real-time 25 fps (see UserSettings.play_interval_ms).
+# Playback is wall-clock based: each tick advances by elapsed × frame_rate ×
+# speed, so 1× stays real time no matter how long a redraw takes (slow draws
+# skip frames instead of slowing the match down).
 _SPEED_BY_LABEL = {"0.5×": 0.5, "1×": 1.0, "2×": 2.0, "4×": 4.0, "8×": 8.0}
+_PLAY_TICK_MS = 10  # re-arm delay between ticks; drawing dominates the cycle
 _TEAM_OPTIONS = (("Home", "home"), ("Both", "both"), ("Away", "away"))
 _POSSESSION_OPTIONS = (
     ("All", "all"),
@@ -91,7 +95,7 @@ class MatchDesktopApp:
         self.preset = preset
 
         self._playing = False
-        self._play_step = max(1, round(2 * self.settings.default_playback_speed))
+        self._last_tick_time = 0.0
         self._play_after_id: str | None = None
         self._layer_vars: dict[str, tk.BooleanVar] = {}
         self._canvases: list[FigureCanvasTkAgg] = []
@@ -473,7 +477,6 @@ class MatchDesktopApp:
 
         self._speed_var.set(self._speed_label(s.default_playback_speed))
         self.app.timeline.on_speed_change(s.default_playback_speed)
-        self._play_step = max(1, round(2 * s.default_playback_speed))
 
         self._team_var.set(s.default_team_focus)
         self.app.position_plot.set_team_focus(s.default_team_focus)
@@ -603,12 +606,13 @@ class MatchDesktopApp:
 
     def _on_scrub(self, t: int) -> None:
         t = max(self._t0, min(int(t), self._t_max))
+        # The views redraw themselves via cursor subscription; a second
+        # _refresh_all() here would double every draw and halve playback fps.
         self.app.timeline.on_scrub(t)
         self._syncing_slider = True
         self._frame_var.set(float(t))
         self._syncing_slider = False
         self._frame_label.config(text=str(t))
-        self._refresh_all()
 
     def _on_frame_scale(self, value: str) -> None:
         if self._syncing_slider:
@@ -620,7 +624,6 @@ class MatchDesktopApp:
     def _on_speed_choice(self, _choice: str) -> None:
         speed = _SPEED_BY_LABEL.get(self._speed_var.get(), 1.0)
         self.app.timeline.on_speed_change(speed)
-        self._play_step = max(1, round(2 * speed))
 
     def _on_preset_choice(self, _choice: str) -> None:
         name = self._preset_var.get()
@@ -691,6 +694,7 @@ class MatchDesktopApp:
         if self.app.cursor.t >= self._t_max:
             self._on_scrub(self._t0)
         self._playing = True
+        self._last_tick_time = time.monotonic()
         self._play_btn.config(text="Pause")
         self._play_tick()
 
@@ -704,13 +708,18 @@ class MatchDesktopApp:
     def _play_tick(self) -> None:
         if not self._playing:
             return
-        t = self.app.cursor.t + self._play_step
+        now = time.monotonic()
+        elapsed = now - self._last_tick_time
+        self._last_tick_time = now
+        speed = _SPEED_BY_LABEL.get(self._speed_var.get(), 1.0)
+        step = max(1, round(elapsed * self.bundle.frame_rate * speed))
+        t = self.app.cursor.t + step
         if t > self._t_max:
             self._on_scrub(self._t_max)
             self._stop_play()
             return
         self._on_scrub(t)
-        self._play_after_id = self.root.after(self.settings.play_interval_ms, self._play_tick)
+        self._play_after_id = self.root.after(_PLAY_TICK_MS, self._play_tick)
 
     def _on_close(self) -> None:
         self._stop_play()

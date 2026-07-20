@@ -11,6 +11,7 @@ from sopovis.render.timeline.layers import (
     EventMarkers,
     LaneFurniture,
     PossessionChart,
+    RedzoneAreaChart,
     SectionBoundaries,
     ShotMarkers,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "HoverTarget",
     "LaneFurniture",
     "PossessionChart",
+    "RedzoneAreaChart",
     "SectionBoundaries",
     "ShotMarkers",
     "TIMELINE_BG",

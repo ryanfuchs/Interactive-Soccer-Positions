@@ -62,10 +62,12 @@ class PitchAnimationView:
     def draw(self, t: int) -> None:
         self.scene.draw(self.ax, self.bundle, t)
         self._apply_orientation()
+        # No clock here — the timeline is the single time indicator.
         self.ax.set_title(
             f"{self.bundle.meta.home_team_name} {self.bundle.meta.result} "
-            f"{self.bundle.meta.guest_team_name}   {self.bundle.clock_label(t)}",
+            f"{self.bundle.meta.guest_team_name}",
             fontsize=9,
+            pad=8,
         )
         self._update_highlight(t)
         if self._local_hover and self._hover is not None and self._hover.person_id:
@@ -90,12 +92,15 @@ class PitchAnimationView:
     def _apply_orientation(self) -> None:
         """Keep VerticalPitch data coords; flip ends via axis limits when needed."""
         length, width = self.bundle.meta.pitch_length, self.bundle.meta.pitch_width
+        # Goal boxes protrude ~2.4 m beyond each goal line (clip_on=False);
+        # pad the y-range so they stay inside the axes, clear of the title.
+        pad = 3.5
         if self.home_at_bottom:
             self.ax.set_xlim(0, width)
-            self.ax.set_ylim(0, length)
+            self.ax.set_ylim(-pad, length + pad)
         else:
             self.ax.set_xlim(width, 0)
-            self.ax.set_ylim(length, 0)
+            self.ax.set_ylim(length + pad, -pad)
 
     def _on_motion(self, event) -> None:
         if self._hover is None:
